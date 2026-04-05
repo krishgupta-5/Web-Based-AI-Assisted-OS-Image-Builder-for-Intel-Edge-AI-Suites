@@ -13,13 +13,14 @@ export function HeroContent() {
 
           {/* TEXT */}
           <div className="text-center md:text-left pt-36">
-            
+
             <h1 className="font-serif text-4xl sm:text-2xl md:text-[26px] lg:text-[40px] xl:text-[60px] leading-tight lg:leading-[1.08] tracking-tight text-white mb-4 md:mb-4">
               <span className="block">EdgeOS</span>
             </h1>
 
             <p className="max-w-xl mx-auto md:mx-0 text-sm lg:text-[17px] xl:text-[14px] text-[#A1A1AA] mb-10 leading-relaxed font-sans">
-              A graph-based workflow engine with node-level retries, checkpointing, and crash-safe execution built for production systems.
+              Describe your AI usecase and instantly generate deployment-ready system architectures.
+              From models to pipelines and APIs, everything is structured, optimized, and ready to build.
             </p>
           </div>
 
