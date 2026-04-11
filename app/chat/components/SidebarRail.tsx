@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { PanelLeft, Search, User } from 'lucide-react';
 
 interface SidebarRailProps {
   onToggleMainSidebar: () => void;
@@ -8,6 +9,21 @@ interface SidebarRailProps {
 }
 
 export default function SidebarRail({ onToggleMainSidebar, isMainSidebarOpen }: SidebarRailProps) {
+  // Shared icon button style for a unified look
+  const railButtonStyle: React.CSSProperties = {
+    width: '42px',
+    height: '42px',
+    borderRadius: '12px',
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+  };
+
   return (
     <div 
       style={{
@@ -17,74 +33,95 @@ export default function SidebarRail({ onToggleMainSidebar, isMainSidebarOpen }: 
         flexDirection: 'column',
         alignItems: 'center',
         padding: '20px 0',
-        zIndex: 50,
+        zIndex: 60,
         gap: '20px',
-        background: 'transparent',
-        borderRight: '1px solid var(--border-subtle)',
-        borderLeft: 'none',
-        borderTop: 'none',
-        borderBottom: 'none',
-        borderRadius: 0,
+        background: 'rgba(10, 10, 10, 0.4)', // Matches main sidebar glass
+        backdropFilter: 'blur(20px)',
+        top: '64px', // Align with main sidebar
+        position: 'sticky',
       }}
     >
-      {/* Top Logo / Toggle */}
+      {/* Top Toggle Button */}
       <button 
         onClick={onToggleMainSidebar}
+        title={isMainSidebarOpen ? "Close Sidebar" : "Open Sidebar"}
         style={{
-          width: '42px',
-          height: '42px',
-          borderRadius: '12px',
-          background: isMainSidebarOpen ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
-          border: 'none',
-          color: 'var(--text-primary)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '20px',
-          transition: 'var(--transition-smooth)',
+          ...railButtonStyle,
+          color: isMainSidebarOpen ? '#fff' : 'var(--text-secondary)',
+          background: isMainSidebarOpen ? 'rgba(255, 255, 255, 0.08)' : 'transparent',
         }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255, 255, 255, 0.08)'; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isMainSidebarOpen ? 'rgba(255, 255, 255, 0.1)' : 'transparent'; }}
+        onMouseEnter={e => {
+          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+          e.currentTarget.style.color = '#fff';
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.background = isMainSidebarOpen ? 'rgba(255, 255, 255, 0.08)' : 'transparent';
+          e.currentTarget.style.color = isMainSidebarOpen ? '#fff' : 'var(--text-secondary)';
+        }}
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-          <line x1="9" y1="3" x2="9" y2="21"/>
-        </svg>
+        <PanelLeft size={22} strokeWidth={2} />
       </button>
 
-      {/* Action Icons */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
-        {/* Empty div to maintain spacing */}
-      </div>
+      {/* Spacer for middle icons if you add them later */}
+      <div style={{ flex: 1 }} />
 
-      {/* Bottom Profile */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
-        {/* Only show logout button when sidebar is closed */}
+      {/* Bottom Section */}
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        alignItems: 'center',
+        gap: '24px', 
+        marginBottom: '20px', 
+        paddingBottom: '10px' 
+      }}>
+                
+        {/* Subtle Search/Action Icon */}
+        {!isMainSidebarOpen && (
+           <button 
+             title="Search"
+             style={{ 
+               ...railButtonStyle, 
+               opacity: 0.6,
+               transition: 'all 0.2s ease'
+             }}
+             onMouseEnter={e => {
+               e.currentTarget.style.opacity = '1';
+               e.currentTarget.style.transform = 'scale(1.1)';
+             }}
+             onMouseLeave={e => {
+               e.currentTarget.style.opacity = '0.6';
+               e.currentTarget.style.transform = 'scale(1)';
+             }}
+           >
+             <Search size={20} strokeWidth={2} />
+           </button>
+        )}
+        
+        {/* Profile Icon - Only visible when Rail is the primary interaction point */}
         {!isMainSidebarOpen && (
           <button 
-            title="Log out"
+            title="Profile"
             style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '12px',
-              background: 'var(--accent-primary)',
-              color: '#000',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              border: 'none',
-              transition: 'all 0.2s',
+              ...railButtonStyle,
+              width: '40px',
+              height: '40px',
+              background: 'rgba(255, 255, 255, 0.05)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              borderRadius: '14px', 
+              transition: 'all 0.2s ease',
             }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.9'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+              e.currentTarget.style.transform = 'scale(1.05)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+              e.currentTarget.style.transform = 'scale(1)';
+            }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
-              <polyline points="10 17 15 12 10 7"></polyline>
-              <line x1="15" y1="12" x2="3" y2="12"></line>
-            </svg>
+            <User size={20} strokeWidth={2} />
           </button>
         )}
       </div>
