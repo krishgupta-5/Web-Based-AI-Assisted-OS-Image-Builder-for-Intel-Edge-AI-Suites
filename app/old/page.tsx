@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Header from "@/components/Header";
-import TemplateGrid from "@/components/TemplateGrid";
-import YamlViewer from "@/components/YamlViewer";
-import ChatBox from "@/components/ChatBox";
+import Header from "@/app/temp/components/Header";
+import TemplateGrid from "@/app/temp/components/TemplateGrid";
+import YamlViewer from "@/app/temp/components/YamlViewer";
+import ChatBox from "@/app/temp/components/ChatBox";
 
 export default function Home() {
   const [result, setResult] = useState({ yaml: "", docker: "", recommendedDevice: "", pipeline: "", pipelineFlow: "" });
