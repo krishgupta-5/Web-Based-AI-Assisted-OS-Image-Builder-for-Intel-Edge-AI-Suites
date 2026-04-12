@@ -3,8 +3,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { getSessionId } from "@/app/api/generate/Sessionid";
-import DbSchemaViewer from "@/app/(protect)/chat/components/DbSchemaViewer";
-import PipelineViewer from "@/app/(protect)/chat/components/PipelineViewer";
+import DbSchemaViewer from "@/app/chat/components/DbSchemaViewer";
+import PipelineViewer from "@/app/chat/components/PipelineViewer";
 
 export interface Message {
   id: string;
@@ -31,6 +31,8 @@ interface ChatPanelProps {
   onToggleSidebar?: () => void;
   isSidebarOpen?: boolean;
   sessionId?: string;
+  showLoginModal?: boolean;
+  onShowLoginModal?: (show: boolean) => void;
 }
 
 type Step = "config" | "docker" | "pipeline" | "docs" | "db";
@@ -128,6 +130,8 @@ export default function ChatPanel({
   onToggleSidebar,
   isSidebarOpen = true,
   sessionId,
+  showLoginModal,
+  onShowLoginModal,
 }: ChatPanelProps) {
   const { isSignedIn } = useUser();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -162,6 +166,10 @@ export default function ChatPanel({
   // Load chat history on component mount
   useEffect(() => {
     const loadChatHistory = async () => {
+      // Skip loading chat history if user is not authenticated
+      if (!isSignedIn) {
+        return;
+      }
       // Clear current messages when loading a new session
       setMessages([]);
       setGeneratedData(null);
@@ -244,7 +252,7 @@ export default function ChatPanel({
     };
 
     loadChatHistory();
-  }, [sessionId]);
+  }, [sessionId, isSignedIn]);
 
   const detectStep = (text: string): Step => {
     const lower = text.toLowerCase();
@@ -354,8 +362,8 @@ export default function ChatPanel({
   const handleSend = async (overrideInput?: string) => {
     // Check if user is authenticated
     if (!isSignedIn) {
-      // Redirect to login page
-      window.location.href = "/login";
+      // Show login modal instead of redirecting
+      onShowLoginModal?.(true);
       return;
     }
 
@@ -459,6 +467,14 @@ export default function ChatPanel({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
+  };
+
+  const handleLoginModalClose = () => {
+    onShowLoginModal?.(false);
+  };
+
+  const handleLoginRedirect = () => {
+    window.location.href = "/login";
   };
 
   // ─────────────────────────────────────────────
@@ -952,68 +968,6 @@ export default function ChatPanel({
   // Input Area
   // ------------------------------------------------------------------
   const renderInputArea = () => {
-    if (!isSignedIn) {
-      return (
-        <div
-          style={{
-            background: "#080808",
-            padding: "20px 16px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "12px",
-            border: "1px solid #333",
-            borderRadius: "8px",
-            transition: "border-color 0.2s, box-shadow 0.2s",
-            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.4)",
-          }}
-        >
-          <div
-            style={{
-              color: "#666",
-              fontFamily: '"Geist Mono", monospace',
-              fontSize: "12px",
-              textAlign: "center",
-              lineHeight: "1.5",
-            }}
-          >
-            <div style={{ marginBottom: "8px", color: "#888", fontSize: "13px" }}>
-              AUTHENTICATION REQUIRED
-            </div>
-            <div style={{ fontSize: "11px", opacity: 0.8 }}>
-              Please log in to send messages
-            </div>
-          </div>
-          <button
-            onClick={() => (window.location.href = "/login")}
-            style={{
-              background: "#EAEAEA",
-              border: "1px solid #EAEAEA",
-              color: "#000000",
-              cursor: "pointer",
-              padding: "8px 20px",
-              fontSize: "11px",
-              fontWeight: 600,
-              fontFamily: '"Geist Mono", monospace',
-              textTransform: "uppercase",
-              transition: "all 0.15s ease",
-              borderRadius: "6px",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "#FFFFFF";
-              e.currentTarget.style.borderColor = "#FFFFFF";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "#EAEAEA";
-              e.currentTarget.style.borderColor = "#EAEAEA";
-            }}
-          >
-            Log In
-          </button>
-        </div>
-      );
-    }
-
     return (
       <div
         style={{
@@ -1206,9 +1160,10 @@ export default function ChatPanel({
         </div>
 
         {/* Right Actions: Token Count & Settings */}
-        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          {/* Token Widget */}
-          <div
+        {isSignedIn && (
+          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+            {/* Token Widget */}
+            <div
             style={{
               display: "flex",
               alignItems: "center",
@@ -1282,6 +1237,7 @@ export default function ChatPanel({
             </span>
           </button>
         </div>
+        )}
       </div>
 
       {/* Main content */}

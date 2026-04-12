@@ -31,7 +31,7 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} font-heist h-full antialiased`}
     >
       <body className="min-h-full flex flex-col" suppressHydrationWarning>
-        <ClerkProvider ui={ui}>
+        <ClerkProvider appearance={{ baseTheme: dark }} ui={ui}>
           {children}
         </ClerkProvider>
       </body>

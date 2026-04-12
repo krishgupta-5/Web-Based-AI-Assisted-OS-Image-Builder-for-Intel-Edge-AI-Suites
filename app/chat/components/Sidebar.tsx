@@ -12,6 +12,8 @@ interface SidebarProps {
   onToggle?: () => void;
   sidebarWidth?: number;
   onResize?: (e: React.MouseEvent) => void;
+  showLoginModal?: boolean;
+  onShowLoginModal?: (show: boolean) => void;
 }
 
 export default function Sidebar({
@@ -21,6 +23,8 @@ export default function Sidebar({
   onToggle,
   sidebarWidth = 260,
   onResize,
+  showLoginModal,
+  onShowLoginModal,
 }: SidebarProps) {
   const { user, isSignedIn } = useUser();
   const [userSessions, setUserSessions] = useState<any[]>([]);
@@ -83,6 +87,12 @@ export default function Sidebar({
   };
 
   const handleNewChat = () => {
+    if (!isSignedIn) {
+      // Show login modal for unauthenticated users
+      onShowLoginModal?.(true);
+      return;
+    }
+    
     try {
       const newSessionId = resetSessionId();
       window.location.href = `/chat/${newSessionId}`;
@@ -323,36 +333,38 @@ export default function Sidebar({
           PLANS & PRICING
         </button>
 
-        <button
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "flex-start",
-            width: "100%",
-            background: "transparent",
-            border: "none",
-            color: "#888",
-            fontSize: "11px",
-            fontWeight: 600,
-            fontFamily: '"Geist Mono", monospace',
-            textTransform: "uppercase",
-            letterSpacing: "1px",
-            cursor: "pointer",
-            transition: "color 0.2s ease, background 0.2s ease",
-            padding: "8px 12px",
-            borderRadius: "2px",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "rgba(255,255,255,0.05)";
-            e.currentTarget.style.color = "#EAEAEA";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "transparent";
-            e.currentTarget.style.color = "#888";
-          }}
-        >
-          SETTINGS
-        </button>
+        {isSignedIn && (
+          <button
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-start",
+              width: "100%",
+              background: "transparent",
+              border: "none",
+              color: "#888",
+              fontSize: "11px",
+              fontWeight: 600,
+              fontFamily: '"Geist Mono", monospace',
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              cursor: "pointer",
+              transition: "color 0.2s ease, background 0.2s ease",
+              padding: "8px 12px",
+              borderRadius: "2px",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+              e.currentTarget.style.color = "#EAEAEA";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "#888";
+            }}
+          >
+            SETTINGS
+          </button>
+        )}
 
         {isSignedIn ? (
           <>
@@ -423,37 +435,36 @@ export default function Sidebar({
             </SignOutButton>
           </>
         ) : (
-          <SignInButton mode="modal">
-            <button
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: "100%",
-                background: "#EAEAEA",
-                border: "none",
-                color: "#000000",
-                fontSize: "11px",
-                fontWeight: 600,
-                fontFamily: '"Geist Mono", monospace',
-                textTransform: "uppercase",
-                letterSpacing: "1px",
-                cursor: "pointer",
-                transition: "background 0.2s ease",
-                padding: "10px 12px",
-                borderRadius: "2px",
-                marginTop: "8px",
-              }}
-              onMouseEnter={(e) =>
-                (e.currentTarget.style.background = "#FFFFFF")
-              }
-              onMouseLeave={(e) =>
-                (e.currentTarget.style.background = "#EAEAEA")
-              }
-            >
-              LOG IN
-            </button>
-          </SignInButton>
+          <button
+            onClick={() => window.location.href = "/login"}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: "100%",
+              background: "#EAEAEA",
+              border: "none",
+              color: "#000000",
+              fontSize: "11px",
+              fontWeight: 600,
+              fontFamily: '"Geist Mono", monospace',
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              cursor: "pointer",
+              transition: "background 0.2s ease",
+              padding: "10px 12px",
+              borderRadius: "2px",
+              marginTop: "8px",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "#FFFFFF")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "#EAEAEA")
+            }
+          >
+            LOG IN
+          </button>
         )}
       </div>
 
