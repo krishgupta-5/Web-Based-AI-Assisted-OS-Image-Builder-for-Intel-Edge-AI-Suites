@@ -483,6 +483,27 @@ function errorResponse(error: string, code: string, status: number): NextRespons
 }
 
 // ─────────────────────────────────────────────
+// Fallback function for test schema
+// ─────────────────────────────────────────────
+async function fallbackToTestSchema(): Promise<DbSchema | null> {
+  log.warn("Falling back to test DB schema");
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    const testSchemaPath = path.join(process.cwd(), 'test-db-schema.mmd');
+    const testSchemaContent = fs.readFileSync(testSchemaPath, 'utf-8');
+    
+    return {
+      mermaid: testSchemaContent,
+      diagram: "" // No diagram available from test file
+    };
+  } catch (err) {
+    log.error("Failed to read test schema file", { err: String(err) });
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────
 // n8n DB Schema + Diagram
 // ─────────────────────────────────────────────
 async function callN8nDbDesign(
@@ -490,9 +511,24 @@ async function callN8nDbDesign(
   stackSummary: string
 ): Promise<DbSchema | null> {
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
+  log.info("Webhook URL check", { webhookUrl: webhookUrl ? "SET" : "NOT_SET", url: webhookUrl || "" });
   if (!webhookUrl) {
-    log.warn("N8N_WEBHOOK_URL not set — skipping DB design");
-    return null;
+    log.warn("N8N_WEBHOOK_URL not set — using test DB schema");
+    // Fallback to test schema when webhook is not configured
+    try {
+      const fs = await import('fs');
+      const path = await import('path');
+      const testSchemaPath = path.join(process.cwd(), 'test-db-schema.mmd');
+      const testSchemaContent = fs.readFileSync(testSchemaPath, 'utf-8');
+      
+      return {
+        mermaid: testSchemaContent,
+        diagram: "" // No diagram available from test file
+      };
+    } catch (err) {
+      log.error("Failed to read test schema file", { err: String(err) });
+      return null;
+    }
   }
 
   try {
@@ -509,7 +545,7 @@ async function callN8nDbDesign(
 
     if (!res.ok) {
       log.error("n8n webhook error", { status: res.status, body: await res.text() });
-      return null;
+      return await fallbackToTestSchema();
     }
 
     const text = await res.text();
@@ -521,7 +557,7 @@ async function callN8nDbDesign(
       data = JSON.parse(cleanText);
     } catch {
       log.error("n8n response is not JSON", { preview: cleanText.slice(0, 200) });
-      return null;
+      return await fallbackToTestSchema();
     }
 
     const payload = Array.isArray(data) ? data[0] : data;

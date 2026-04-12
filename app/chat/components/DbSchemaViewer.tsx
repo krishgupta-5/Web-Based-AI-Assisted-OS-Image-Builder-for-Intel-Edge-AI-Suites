@@ -1,77 +1,87 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from "react";
 
 interface DbSchemaViewerProps {
   mermaid: string;
-  diagram: string;
+  diagram?: string;
 }
 
-type ViewMode = 'diagram' | 'source';
+type ViewMode = "diagram" | "source";
 
-export default function DbSchemaViewer({ mermaid: mermaidSource, diagram }: DbSchemaViewerProps) {
-  const [mode, setMode] = useState<ViewMode>('diagram');
+export default function DbSchemaViewer({
+  mermaid: mermaidSource,
+}: DbSchemaViewerProps) {
+  const [mode, setMode] = useState<ViewMode>("diagram");
   const [isExpanded, setIsExpanded] = useState(false);
-  const [mermaidSvg, setMermaidSvg] = useState<string>('');
+  const [mermaidSvg, setMermaidSvg] = useState<string>("");
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
+  const [isLoaded, setIsLoaded] = useState(false); // Smooth loading state
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const processedMermaid = mermaidSource.includes('direction')
+  // Pan and Zoom State
+  const [scale, setScale] = useState(1);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  const processedMermaid = mermaidSource.includes("direction")
     ? mermaidSource
-    : mermaidSource.replace('erDiagram', 'erDiagram\n    direction LR');
+    : mermaidSource.replace("erDiagram", "erDiagram\n    direction LR");
 
   useEffect(() => {
-    if (!processedMermaid.trim().startsWith('erDiagram')) return;
+    if (!processedMermaid.trim().startsWith("erDiagram")) return;
 
     const renderMermaid = async () => {
+      setIsLoaded(false); // Reset loading state
       try {
-        const mermaid = (await import('mermaid')).default;
+        const mermaid = (await import("mermaid")).default;
 
         mermaid.initialize({
           startOnLoad: false,
-          theme: 'dark',
+          theme: "dark",
           themeVariables: {
-            primaryColor: '#1e293b',
-            primaryTextColor: '#34d399',
-            lineColor: '#34d399',
-            mainBkg: '#0f172a',
-            entityBkg: '#1e293b',
-            entityBorder: '#334155',
+            primaryColor: "#0A0A0A",
+            primaryTextColor: "#EAEAEA",
+            lineColor: "#444444",
+            mainBkg: "transparent",
+            entityBkg: "#0A0A0A",
+            entityBorder: "#333333",
           },
           er: {
-            useMaxWidth: false,   // ✅ Critical: don't constrain SVG width
+            useMaxWidth: true,
             diagramPadding: 40,
-            layoutDirection: 'LR',
-            minEntityHeight: 34,
-            minEntityWidth: 200,
+            layoutDirection: "LR",
+            minEntityHeight: 30,
+            minEntityWidth: 160,
           },
+          fontFamily: '"Geist Mono", monospace',
         });
 
         const id = `er-diag-${Math.random().toString(36).substring(2, 11)}`;
         const { svg } = await mermaid.render(id, processedMermaid);
 
-        // ✅ Parse the SVG to extract its real width/height from viewBox or width attrs
         const parser = new DOMParser();
-        const doc = parser.parseFromString(svg, 'image/svg+xml');
-        const svgEl = doc.querySelector('svg');
+        const doc = parser.parseFromString(svg, "image/svg+xml");
+        const svgEl = doc.querySelector("svg");
 
         let width = 0;
         let height = 0;
 
         if (svgEl) {
-          // Mermaid sets width/height as style or attributes — check both
-          const vb = svgEl.getAttribute('viewBox');
+          const vb = svgEl.getAttribute("viewBox");
           if (vb) {
             const parts = vb.split(/[\s,]+/);
             width = parseFloat(parts[2]) || 0;
             height = parseFloat(parts[3]) || 0;
           }
-          // Override width/height attrs so SVG renders at its natural size
-          svgEl.removeAttribute('width');
-          svgEl.removeAttribute('height');
-          svgEl.style.width = `${width}px`;
-          svgEl.style.height = `${height}px`;
-          svgEl.style.maxWidth = 'none';
+
+          svgEl.setAttribute("width", "100%");
+          svgEl.setAttribute("height", "100%");
+          svgEl.style.width = "100%";
+          svgEl.style.height = "100%";
+          svgEl.style.maxWidth = "100%";
+          svgEl.style.maxHeight = "100%";
 
           const modifiedSvg = new XMLSerializer().serializeToString(svgEl);
           setMermaidSvg(modifiedSvg);
@@ -79,58 +89,94 @@ export default function DbSchemaViewer({ mermaid: mermaidSource, diagram }: DbSc
         } else {
           setMermaidSvg(svg);
         }
+
+        // Trigger smooth fade-in after a tiny delay to allow DOM to inject SVG
+        setTimeout(() => setIsLoaded(true), 50);
       } catch (error) {
-        console.error('Mermaid rendering error:', error);
+        console.error("Mermaid rendering error:", error);
       }
     };
 
     renderMermaid();
   }, [processedMermaid]);
 
-  const SCALE = 1.25;
-
-  const scrollContainerStyle: React.CSSProperties = {
-    width: '100%',
-    height: isExpanded ? '85vh' : '600px',
-    overflow: 'auto',
-    backgroundColor: '#020617',
-    backgroundImage: 'radial-gradient(#1e293b 1.2px, transparent 1.2px)',
-    backgroundSize: '32px 32px',
-    borderRadius: '12px',
-    border: '1px solid #1e293b',
-    transition: 'height 0.3s ease',
-    position: 'relative',
+  // ─────────────────────────────────────────────
+  // Interaction Handlers (Pan & Zoom)
+  // ─────────────────────────────────────────────
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (mode === "source") return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
 
-  // ✅ The spacer div tells the scroll container the TRUE scaled size
-  // so scrollbars cover the full diagram — not the clipped version
-  const spacerStyle: React.CSSProperties = {
-    width: `${svgDimensions.width * SCALE + 80}px`,   // +80 for padding
-    height: `${svgDimensions.height * SCALE + 80}px`,
-    position: 'relative',
-    flexShrink: 0,
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || mode === "source") return;
+    setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
   };
 
-  // ✅ The SVG sits inside the spacer, scaled from top-left
-  const svgWrapperStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '40px',
-    left: '40px',
-    transformOrigin: 'top left',
-    transform: `scale(${SCALE})`,
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+  };
+
+  const resetView = () => {
+    setScale(1);
+    setPosition({ x: 0, y: 0 });
+  };
+
+  const zoomIn = () => setScale((s) => Math.min(s + 0.25, 5));
+  const zoomOut = () => setScale((s) => Math.max(s - 0.25, 0.2));
+
+  // ─────────────────────────────────────────────
+  // Styles
+  // ─────────────────────────────────────────────
+  const containerStyle: React.CSSProperties = {
+    width: "100%",
+    height: isExpanded ? "85vh" : "600px",
+    overflow: "hidden", // Standard clipping
+    clipPath: "inset(0)", // Hard hardware clipping to prevent line bleed
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#050505",
+    backgroundImage: "radial-gradient(#222 1px, transparent 1px)",
+    backgroundSize: "20px 20px",
+    borderRadius: "8px",
+    border: "1px solid #1A1A1A",
+    transition: "height 0.3s ease",
+    boxSizing: "border-box",
+    position: "relative",
+    zIndex: 1, // Create a new stacking context
+    // Interactive cursor styling
+    cursor: mode === "source" ? "default" : isDragging ? "grabbing" : "grab",
   };
 
   const renderContent = () => {
-    if (mode === 'source') {
+    if (mode === "source") {
       return (
-        <div style={{
-          ...scrollContainerStyle,
-          backgroundColor: '#0a0a0a',
-          backgroundImage: 'none',
-          padding: '24px',
-          boxSizing: 'border-box',
-        }}>
-          <pre style={{ margin: 0, fontSize: '13px', color: '#60a5fa', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+        <div
+          style={{
+            ...containerStyle,
+            backgroundColor: "#000000",
+            backgroundImage: "none",
+            justifyContent: "flex-start",
+            alignItems: "flex-start",
+            padding: "24px",
+            overflow: "auto",
+          }}
+        >
+          <pre
+            style={{
+              margin: 0,
+              fontSize: "13px",
+              color: "#A78BFA",
+              fontFamily: '"Geist Mono", monospace',
+              whiteSpace: "pre-wrap",
+            }}
+          >
             {processedMermaid}
           </pre>
         </div>
@@ -138,112 +184,230 @@ export default function DbSchemaViewer({ mermaid: mermaidSource, diagram }: DbSc
     }
 
     return (
-      <div style={scrollContainerStyle}>
-        {/* Spacer expands scroll area to the full scaled size */}
-        <div style={spacerStyle}>
-          {/* SVG rendered at natural size, then scaled visually */}
+      <div
+        style={containerStyle}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+      >
+        {/* Wrapper for the fade-in animation */}
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            opacity: isLoaded ? 1 : 0,
+            transition: "opacity 0.8s ease-in-out",
+          }}
+        >
           <div
             ref={wrapperRef}
-            style={svgWrapperStyle}
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              // Apply the transform for panning and zooming
+              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
+              transformOrigin: "center",
+              transition: isDragging ? "none" : "transform 0.1s ease-out",
+              pointerEvents: "none", // Let the parent container handle all mouse events
+            }}
             dangerouslySetInnerHTML={{ __html: mermaidSvg }}
           />
         </div>
 
-        <style dangerouslySetInnerHTML={{ __html: `
-          .mermaid-wrapper svg,
-          [data-mermaid] svg {
-            max-width: none !important;
-            overflow: visible !important;
-          }
-          text.er.entityName {
-            fill: #34d399 !important;
-            font-size: 18px !important;
-            font-weight: 900 !important;
-          }
-          path.er.relationshipLine {
-            stroke: #64748b !important;
-            stroke-width: 2.5px !important;
-          }
-          text.er.attributeBox {
-            font-size: 14px !important;
-            fill: #cbd5e1 !important;
-          }
-        `}} />
+        {/* CSS Overrides for Mermaid injected SVG */}
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+            .mermaid-wrapper svg,
+            [data-mermaid] svg {
+              max-width: 100% !important;
+              height: auto !important;
+              overflow: hidden !important; /* Stop SVG internal bleed */
+            }
+            text.er.entityName {
+              fill: #EAEAEA !important;
+              font-size: 14px !important;
+              font-weight: 600 !important;
+              font-family: "Geist Mono", monospace !important;
+            }
+            path.er.relationshipLine {
+              stroke: #555 !important;
+              stroke-width: 1.5px !important;
+            }
+            text.er.attributeBox {
+              font-size: 12px !important;
+              fill: #888 !important;
+              font-family: "Geist Mono", monospace !important;
+            }
+          `,
+          }}
+        />
       </div>
     );
   };
 
   return (
-    <div style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          <div style={{
-            background: 'rgba(52, 211, 153, 0.15)',
-            color: '#34d399',
-            padding: '6px 14px',
-            borderRadius: '8px',
-            fontSize: '11px',
-            fontWeight: 800,
-            border: '1px solid #34d399',
-          }}>
-            DATABASE BLUEPRINT
-          </div>
+    <div style={{ fontFamily: '"Geist", sans-serif', width: "100%" }}>
+      {/* ───────────────────────────────────────────── */}
+      {/* HEADER CONTROLS                               */}
+      {/* ───────────────────────────────────────────── */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: "16px",
+          flexWrap: "wrap",
+          gap: "16px",
+        }}
+      >
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             style={{
-              background: '#1e293b',
-              border: '1px solid #334155',
-              color: '#fff',
-              padding: '6px 16px',
-              borderRadius: '8px',
-              fontSize: '11px',
-              cursor: 'pointer',
+              background: "transparent",
+              border: "1px solid #333",
+              color: "#EAEAEA",
+              padding: "6px 16px",
+              borderRadius: "4px",
+              fontSize: "11px",
+              cursor: "pointer",
               fontWeight: 600,
+              textTransform: "uppercase",
+              fontFamily: '"Geist Mono", monospace',
+              transition: "all 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#666";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#333";
             }}
           >
-            {isExpanded ? 'Exit Fullscreen' : 'Enter Focus Mode'}
+            {isExpanded ? "Exit Fullscreen" : "Enter Focus Mode"}
           </button>
         </div>
 
-        <div style={{ display: 'flex', background: '#0f172a', borderRadius: '10px', padding: '4px', border: '1px solid #1e293b' }}>
-          {(['diagram', 'source'] as ViewMode[]).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              style={{
-                padding: '8px 18px',
-                background: mode === m ? '#34d399' : 'transparent',
-                border: 'none',
-                borderRadius: '7px',
-                color: mode === m ? '#020617' : '#94a3b8',
-                fontSize: '12px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: '0.2s',
-              }}
-            >
-              {m.toUpperCase()}
-            </button>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          {/* Zoom Controls (Only show if in Diagram mode) */}
+          {mode === "diagram" && (
+            <div style={{ display: "flex", gap: "4px", marginRight: "8px" }}>
+              <button onClick={zoomOut} style={controlButtonStyle}>
+                -
+              </button>
+              <button
+                onClick={resetView}
+                style={{ ...controlButtonStyle, fontSize: "9px" }}
+              >
+                RESET
+              </button>
+              <button onClick={zoomIn} style={controlButtonStyle}>
+                +
+              </button>
+            </div>
+          )}
+
+          {/* Mode Toggles */}
+          <div
+            style={{
+              display: "flex",
+              background: "#050505",
+              borderRadius: "4px",
+              padding: "4px",
+              border: "1px solid #1A1A1A",
+            }}
+          >
+            {(["diagram", "source"] as ViewMode[]).map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  padding: "6px 16px",
+                  background: mode === m ? "#222" : "transparent",
+                  border: "none",
+                  borderRadius: "2px",
+                  color: mode === m ? "#EAEAEA" : "#666",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  transition: "0.2s",
+                  fontFamily: '"Geist Mono", monospace',
+                  textTransform: "uppercase",
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* ───────────────────────────────────────────── */}
+      {/* MAIN VIEWPORT                                 */}
+      {/* ───────────────────────────────────────────── */}
       {renderContent()}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px' }}>
-        <div style={{ fontSize: '11px', color: '#475569', fontWeight: 500 }}>
-          Scale: 125% • Direction: Horizontal (LR)
+      {/* ───────────────────────────────────────────── */}
+      {/* FOOTER INFO                                   */}
+      {/* ───────────────────────────────────────────── */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginTop: "12px",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "10px",
+            color: "#666",
+            fontFamily: '"Geist Mono", monospace',
+            textTransform: "uppercase",
+          }}
+        >
+          Scale: {Math.round(scale * 100)}% • Mode: Interactive
           {svgDimensions.width > 0 && (
-            <span style={{ marginLeft: '12px', opacity: 0.6 }}>
-              {Math.round(svgDimensions.width)} × {Math.round(svgDimensions.height)}px
+            <span style={{ marginLeft: "12px", color: "#444" }}>
+              Native Size: {Math.round(svgDimensions.width)} ×{" "}
+              {Math.round(svgDimensions.height)}px
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '20px', fontSize: '11px', color: '#64748b' }}>
-          <span>↔ Scroll right for more tables</span>
-          <span>↕ Scroll down for fields</span>
-        </div>
+        {mode === "diagram" && (
+          <div
+            style={{
+              fontSize: "10px",
+              color: "#888",
+              fontFamily: '"Geist Mono", monospace',
+              textTransform: "uppercase",
+            }}
+          >
+            [ DRAG TO PAN ] [ USE +/- BUTTONS TO ZOOM ]
+          </div>
+        )}
       </div>
     </div>
   );
 }
+
+// Helper style for the small zoom control buttons
+const controlButtonStyle: React.CSSProperties = {
+  background: "#050505",
+  border: "1px solid #1A1A1A",
+  color: "#A0A0A0",
+  width: "28px",
+  height: "28px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "4px",
+  cursor: "pointer",
+  fontFamily: '"Geist Mono", monospace',
+  fontSize: "14px",
+  fontWeight: 600,
+  transition: "all 0.2s",
+};

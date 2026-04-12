@@ -3,7 +3,6 @@
 import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatPanel from './components/ChatPanel';
-import SidebarRail from './components/SidebarRail';
 
 const agentNames: Record<string, string> = {
     '1': 'External Meeting Prep Ag...',
@@ -34,11 +33,7 @@ export default function Home() {
                     activeAgentId={activeAgentId}
                     onSelectAgent={setActiveAgentId}
                     isOpen={isSidebarOpen}
-                />
-
-                <SidebarRail
-                    onToggleMainSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-                    isMainSidebarOpen={isSidebarOpen}
+                    onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
                 />
 
                 <ChatPanel
