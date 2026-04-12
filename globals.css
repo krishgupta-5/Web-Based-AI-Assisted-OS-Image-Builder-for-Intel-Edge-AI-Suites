@@ -1,3 +1,14 @@
+@import url('https://fonts.cdnfonts.com/css/heist');
+
+:root {
+  --font-heist: 'Heist', sans-serif;
+  --font-geist-sans: 'Geist', sans-serif;
+}
+
+.font-geist {
+  font-family: var(--font-geist-sans);
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;

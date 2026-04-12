@@ -16,10 +16,9 @@ export default function DbSchemaViewer({
   const [isExpanded, setIsExpanded] = useState(false);
   const [mermaidSvg, setMermaidSvg] = useState<string>("");
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
-  const [isLoaded, setIsLoaded] = useState(false); // Smooth loading state
+  const [isLoaded, setIsLoaded] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Pan and Zoom State
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -29,11 +28,26 @@ export default function DbSchemaViewer({
     ? mermaidSource
     : mermaidSource.replace("erDiagram", "erDiagram\n    direction LR");
 
+  const fitToScreen = (svgWidth: number, svgHeight: number) => {
+    if (!wrapperRef.current || svgWidth === 0 || svgHeight === 0) return;
+    const container = wrapperRef.current.parentElement;
+    if (!container) return;
+
+    const padding = 100;
+    const scaleX = (container.clientWidth - padding) / svgWidth;
+    const scaleY = (container.clientHeight - padding) / svgHeight;
+
+    const optimalScale = Math.min(scaleX, scaleY, 1.5);
+
+    setScale(optimalScale);
+    setPosition({ x: 0, y: 0 });
+  };
+
   useEffect(() => {
     if (!processedMermaid.trim().startsWith("erDiagram")) return;
 
     const renderMermaid = async () => {
-      setIsLoaded(false); // Reset loading state
+      setIsLoaded(false);
       try {
         const mermaid = (await import("mermaid")).default;
 
@@ -49,8 +63,8 @@ export default function DbSchemaViewer({
             entityBorder: "#333333",
           },
           er: {
-            useMaxWidth: true,
-            diagramPadding: 40,
+            useMaxWidth: false,
+            diagramPadding: 80, // Slightly increased native padding
             layoutDirection: "LR",
             minEntityHeight: 30,
             minEntityWidth: 160,
@@ -76,21 +90,27 @@ export default function DbSchemaViewer({
             height = parseFloat(parts[3]) || 0;
           }
 
-          svgEl.setAttribute("width", "100%");
-          svgEl.setAttribute("height", "100%");
-          svgEl.style.width = "100%";
-          svgEl.style.height = "100%";
-          svgEl.style.maxWidth = "100%";
-          svgEl.style.maxHeight = "100%";
+          if (width && height) {
+            svgEl.setAttribute("width", `${width}px`);
+            svgEl.setAttribute("height", `${height}px`);
+            svgEl.style.width = `${width}px`;
+            svgEl.style.height = `${height}px`;
+          }
+          svgEl.style.maxWidth = "none";
+          svgEl.style.maxHeight = "none";
+
+          // BULLETPROOF FIX: Apply overflow visible directly to the SVG element via JS
+          svgEl.style.overflow = "visible";
 
           const modifiedSvg = new XMLSerializer().serializeToString(svgEl);
           setMermaidSvg(modifiedSvg);
           setSvgDimensions({ width, height });
+
+          setTimeout(() => fitToScreen(width, height), 10);
         } else {
           setMermaidSvg(svg);
         }
 
-        // Trigger smooth fade-in after a tiny delay to allow DOM to inject SVG
         setTimeout(() => setIsLoaded(true), 50);
       } catch (error) {
         console.error("Mermaid rendering error:", error);
@@ -98,11 +118,8 @@ export default function DbSchemaViewer({
     };
 
     renderMermaid();
-  }, [processedMermaid]);
+  }, [processedMermaid, isExpanded]);
 
-  // ─────────────────────────────────────────────
-  // Interaction Handlers (Pan & Zoom)
-  // ─────────────────────────────────────────────
   const handleMouseDown = (e: React.MouseEvent) => {
     if (mode === "source") return;
     setIsDragging(true);
@@ -114,30 +131,20 @@ export default function DbSchemaViewer({
     setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
   };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
+  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseLeave = () => setIsDragging(false);
 
-  const handleMouseLeave = () => {
-    setIsDragging(false);
-  };
-
-  const resetView = () => {
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
-  };
+  const resetView = () =>
+    fitToScreen(svgDimensions.width, svgDimensions.height);
 
   const zoomIn = () => setScale((s) => Math.min(s + 0.25, 5));
-  const zoomOut = () => setScale((s) => Math.max(s - 0.25, 0.2));
+  const zoomOut = () => setScale((s) => Math.max(s - 0.25, 0.1));
 
-  // ─────────────────────────────────────────────
-  // Styles
-  // ─────────────────────────────────────────────
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: isExpanded ? "85vh" : "600px",
-    overflow: "hidden", // Standard clipping
-    clipPath: "inset(0)", // Hard hardware clipping to prevent line bleed
+    overflow: "hidden",
+    clipPath: "inset(0)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -149,8 +156,7 @@ export default function DbSchemaViewer({
     transition: "height 0.3s ease",
     boxSizing: "border-box",
     position: "relative",
-    zIndex: 1, // Create a new stacking context
-    // Interactive cursor styling
+    zIndex: 1,
     cursor: mode === "source" ? "default" : isDragging ? "grabbing" : "grab",
   };
 
@@ -191,7 +197,6 @@ export default function DbSchemaViewer({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
       >
-        {/* Wrapper for the fade-in animation */}
         <div
           style={{
             width: "100%",
@@ -202,31 +207,28 @@ export default function DbSchemaViewer({
         >
           <div
             ref={wrapperRef}
+            className="mermaid-wrapper" // FIX: Added the class so CSS applies properly if needed
             style={{
               width: "100%",
               height: "100%",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              // Apply the transform for panning and zooming
               transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
               transformOrigin: "center",
               transition: isDragging ? "none" : "transform 0.1s ease-out",
-              pointerEvents: "none", // Let the parent container handle all mouse events
+              pointerEvents: "none",
             }}
             dangerouslySetInnerHTML={{ __html: mermaidSvg }}
           />
         </div>
 
-        {/* CSS Overrides for Mermaid injected SVG */}
         <style
           dangerouslySetInnerHTML={{
             __html: `
             .mermaid-wrapper svg,
             [data-mermaid] svg {
-              max-width: 100% !important;
-              height: auto !important;
-              overflow: hidden !important; /* Stop SVG internal bleed */
+              overflow: visible !important; 
             }
             text.er.entityName {
               fill: #EAEAEA !important;
@@ -252,9 +254,6 @@ export default function DbSchemaViewer({
 
   return (
     <div style={{ fontFamily: '"Geist", sans-serif', width: "100%" }}>
-      {/* ───────────────────────────────────────────── */}
-      {/* HEADER CONTROLS                               */}
-      {/* ───────────────────────────────────────────── */}
       <div
         style={{
           display: "flex",
@@ -293,7 +292,6 @@ export default function DbSchemaViewer({
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {/* Zoom Controls (Only show if in Diagram mode) */}
           {mode === "diagram" && (
             <div style={{ display: "flex", gap: "4px", marginRight: "8px" }}>
               <button onClick={zoomOut} style={controlButtonStyle}>
@@ -301,9 +299,13 @@ export default function DbSchemaViewer({
               </button>
               <button
                 onClick={resetView}
-                style={{ ...controlButtonStyle, fontSize: "9px" }}
+                style={{
+                  ...controlButtonStyle,
+                  fontSize: "9px",
+                  width: "45px",
+                }}
               >
-                RESET
+                FIT
               </button>
               <button onClick={zoomIn} style={controlButtonStyle}>
                 +
@@ -311,7 +313,6 @@ export default function DbSchemaViewer({
             </div>
           )}
 
-          {/* Mode Toggles */}
           <div
             style={{
               display: "flex",
@@ -346,14 +347,8 @@ export default function DbSchemaViewer({
         </div>
       </div>
 
-      {/* ───────────────────────────────────────────── */}
-      {/* MAIN VIEWPORT                                 */}
-      {/* ───────────────────────────────────────────── */}
       {renderContent()}
 
-      {/* ───────────────────────────────────────────── */}
-      {/* FOOTER INFO                                   */}
-      {/* ───────────────────────────────────────────── */}
       <div
         style={{
           display: "flex",
@@ -394,7 +389,6 @@ export default function DbSchemaViewer({
   );
 }
 
-// Helper style for the small zoom control buttons
 const controlButtonStyle: React.CSSProperties = {
   background: "#050505",
   border: "1px solid #1A1A1A",

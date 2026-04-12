@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
-import { getSessionId } from '@/app/api/generate/Sessionid';
-import DbSchemaViewer from '@/app/(protect)/chat/components/DbSchemaViewer';
-import PipelineViewer from '@/app/(protect)/chat/components/PipelineViewer';
-import { UserButton, useUser } from '@clerk/nextjs';
+import React, { useState, useRef, useEffect } from "react";
+import { useUser } from "@clerk/nextjs";
+import { getSessionId } from "@/app/api/generate/Sessionid";
+import DbSchemaViewer from "@/app/(protect)/chat/components/DbSchemaViewer";
+import PipelineViewer from "@/app/(protect)/chat/components/PipelineViewer";
 
 export interface Message {
   id: string;
@@ -62,16 +62,18 @@ function CopyButton({ content }: { content: string }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "5px",
+        justifyContent: "center",
         fontSize: "10px",
         color: copied ? "#34D399" : "#A0A0A0",
         background: "transparent",
         border: `1px solid ${copied ? "#34D39940" : "#333"}`,
         padding: "4px 12px",
-        borderRadius: "2px",
+        borderRadius: "4px",
         cursor: "pointer",
         fontFamily: '"Geist Mono", monospace',
         transition: "all 0.2s ease",
+        fontWeight: 600,
+        letterSpacing: "0.5px",
       }}
       onMouseEnter={(e) => {
         if (!copied) {
@@ -86,40 +88,7 @@ function CopyButton({ content }: { content: string }) {
         }
       }}
     >
-      {copied ? (
-        <>
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
-          COPIED!
-        </>
-      ) : (
-        <>
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-          </svg>
-          COPY
-        </>
-      )}
+      {copied ? "COPIED!" : "COPY"}
     </button>
   );
 }
@@ -142,10 +111,11 @@ function LanguageBadge({ language }: { language: string }) {
         color: "#A0A0A0",
         background: "#111",
         border: "1px solid #333",
-        padding: "2px 7px",
-        borderRadius: "1px",
+        padding: "3px 8px",
+        borderRadius: "4px",
         fontFamily: '"Geist Mono", monospace',
         letterSpacing: "0.5px",
+        fontWeight: 500,
       }}
     >
       {labels[language] ?? language.toUpperCase()}
@@ -153,18 +123,30 @@ function LanguageBadge({ language }: { language: string }) {
   );
 }
 
-export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = true, sessionId }: ChatPanelProps) {
-  const { user, isSignedIn } = useUser();
-  const [messages, setMessages]           = useState<Message[]>(initialMessages);
-  const [input, setInput]                 = useState('');
-  const [isTyping, setIsTyping]           = useState(false);
-  const [markdownMode, setMarkdownMode]   = useState<Record<string, 'code' | 'preview'>>({});
+export default function ChatPanel({
+  agentName,
+  onToggleSidebar,
+  isSidebarOpen = true,
+  sessionId,
+}: ChatPanelProps) {
+  const { isSignedIn } = useUser();
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [markdownMode, setMarkdownMode] = useState<
+    Record<string, "code" | "preview">
+  >({});
   const [generatedData, setGeneratedData] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [hasGeneratedConfig, setHasGeneratedConfig] = useState(false);
   const [isModifyMode, setIsModifyMode] = useState(false);
-  const [showTokenInfo, setShowTokenInfo] = useState(false);
+
+  // Custom token counter state
+  const [tokensUsed, setTokensUsed] = useState(24592);
+  const [isTokenHovered, setIsTokenHovered] = useState(false);
+  const TOTAL_TOKENS = 500000;
+
   // Per-message pipeline active node
   const [activePipelineNodes, setActivePipelineNodes] = useState<
     Record<string, string | null>
@@ -172,6 +154,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
 
   const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
@@ -179,94 +162,119 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
   // Load chat history on component mount
   useEffect(() => {
     const loadChatHistory = async () => {
-      if (!isSignedIn) return;
-      
       // Clear current messages when loading a new session
       setMessages([]);
       setGeneratedData(null);
       setHasGeneratedConfig(false);
       setIsModifyMode(false);
-      
+
       try {
         const currentSessionId = sessionId || getSessionId();
-        
-        // First, load messages to get the conversation flow
+
         let messagesResponse;
         let messagesData;
         let foundCompleteResult = false;
         let completeResultData = null;
-        
+
         try {
-          messagesResponse = await fetch(`/api/chat-history?sessionId=${currentSessionId}`);
+          messagesResponse = await fetch(
+            `/api/chat-history?sessionId=${currentSessionId}`,
+          );
           if (!messagesResponse.ok) return;
-          
+
           messagesData = await messagesResponse.json();
         } catch (error) {
-          console.error('Failed to fetch chat history:', error);
+          console.error("Failed to fetch chat history:", error);
           return;
         }
-        
-        const historyMessages: Message[] = (messagesData?.messages || []).map((msg: any) => {
-          let content = msg.content;
-          
-          // For assistant messages, check if they contain complete result data
-          if (msg.role === 'assistant') {
-            try {
-              const parsed = JSON.parse(msg.content);
-              if (parsed.yaml || parsed.docker || parsed.pipeline || parsed.markdown) {
-                // This is a complete generation result - store it for later
-                foundCompleteResult = true;
-                completeResultData = parsed;
-                content = 'Configuration generated successfully. You can view the generated files below.';
+
+        const historyMessages: Message[] = (messagesData?.messages || []).map(
+          (msg: any) => {
+            let content = msg.content;
+
+            // For assistant messages, check if they contain complete result data
+            if (msg.role === "assistant") {
+              try {
+                const parsed = JSON.parse(msg.content);
+                if (
+                  parsed.yaml ||
+                  parsed.docker ||
+                  parsed.pipeline ||
+                  parsed.markdown
+                ) {
+                  // This is a complete generation result - store it for later
+                  foundCompleteResult = true;
+                  completeResultData = parsed;
+                  content =
+                    "Configuration generated successfully. You can view the generated files below.";
+                }
+              } catch (e) {
+                // If it's not JSON, keep the original content
+                content = msg.content;
               }
-            } catch (e) {
-              // If it's not JSON, keep the original content
-              content = msg.content;
             }
-          }
-          
-          return {
-            id: msg.id,
-            role: msg.role,
-            content,
-            timestamp: new Date(msg.createdAt?.toDate?.() || msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          };
-        });
-        
+
+            return {
+              id: msg.id,
+              role: msg.role,
+              content,
+              timestamp: new Date(
+                msg.createdAt?.toDate?.() || msg.createdAt,
+              ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            };
+          },
+        );
+
         setMessages(historyMessages);
-        
+
         // If we found complete result data, set it now (after messages are set)
         if (foundCompleteResult && completeResultData) {
           setGeneratedData(completeResultData);
           setHasGeneratedConfig(true);
           return; // We're done - no API calls needed
         }
-        
+
         // If no complete result found in messages, try to load from artifacts
-        console.log('No complete result found in messages, checking artifacts...');
-        
+        console.log(
+          "No complete result found in messages, checking artifacts...",
+        );
       } catch (error) {
-        console.error('Failed to load chat history:', error);
+        console.error("Failed to load chat history:", error);
       }
     };
 
     loadChatHistory();
-  }, [isSignedIn, sessionId]);
+  }, [sessionId]);
 
   const detectStep = (text: string): Step => {
     const lower = text.toLowerCase();
-    if (isModifyMode) return 'config';
-    
+    if (isModifyMode) return "config";
+
     // For initial generation (not modify mode), prioritize config step
     // DB step should only be triggered explicitly after config is generated
     if (hasGeneratedConfig) {
-      if (lower.includes('db schema') || lower.includes('database schema') || lower.includes('view db') || lower.includes('show db') || lower.includes('show schema')) return 'db';
-      if (lower.includes('docker') || lower.includes('continue')) return 'docker';
-      if (lower.includes('pipeline') || lower.includes('show pipeline')) return 'pipeline';
-      if (lower.includes('docs') || lower.includes('documentation') || lower.includes('readme') || lower.includes('generate docs')) return 'docs';
+      if (
+        lower.includes("db schema") ||
+        lower.includes("database schema") ||
+        lower.includes("view db") ||
+        lower.includes("show db") ||
+        lower.includes("show schema")
+      )
+        return "db";
+      if (lower.includes("docker") || lower.includes("continue"))
+        return "docker";
+      if (lower.includes("pipeline") || lower.includes("show pipeline"))
+        return "pipeline";
+      if (
+        lower.includes("docs") ||
+        lower.includes("documentation") ||
+        lower.includes("readme") ||
+        lower.includes("generate docs")
+      )
+        return "docs";
     }
-    
-    return 'config';
+
+    return "config";
   };
 
   const buildAssistantMessage = (
@@ -344,6 +352,13 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
   };
 
   const handleSend = async (overrideInput?: string) => {
+    // Check if user is authenticated
+    if (!isSignedIn) {
+      // Redirect to login page
+      window.location.href = "/login";
+      return;
+    }
+
     const textToSend = (overrideInput ?? input).trim();
     if (!textToSend) return;
     const step = detectStep(textToSend);
@@ -361,6 +376,10 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
     setIsTyping(true);
     if (textareaRef.current && !overrideInput)
       textareaRef.current.style.height = "24px";
+
+    // Simulate token increment on message send
+    setTokensUsed((prev) => prev + Math.floor(Math.random() * 50) + 10);
+
     try {
       let data = generatedData;
       const needsFreshData = !data || isModifyMode || step === "config";
@@ -372,15 +391,18 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               prompt: textToSend,
-              mode: isModifyMode ? 'modify' : 'generate',
+              mode: isModifyMode ? "modify" : "generate",
               sessionId: sessionId || getSessionId(),
             }),
           });
           if (!res.ok) throw new Error(`API error: ${res.status}`);
           data = await res.json();
           if (data.error) throw new Error(data.error);
+
+          // Add tokens from backend if available, otherwise simulate usage
+          if (data.tokens) setTokensUsed((prev) => prev + data.tokens);
         } catch (error) {
-          console.error('Failed to send message:', error);
+          console.error("Failed to send message:", error);
           setIsTyping(false);
           return;
         }
@@ -665,7 +687,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                   )
                   .replace(
                     /<CODE>(.+?)<\/CODE>/g,
-                    '<code style="font-size:11px;background:#111;padding:1px 6px;border-radius:2px;color:#A78BFA;border:1px solid #333;font-family:Geist Mono,monospace;">$1</code>',
+                    '<code style="font-size:11px;background:#111;padding:2px 6px;border-radius:4px;color:#A78BFA;border:1px solid #333;font-family:Geist Mono,monospace;">$1</code>',
                   ),
               }}
             />
@@ -723,8 +745,8 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                   style={{
                     fontSize: "11px",
                     background: "#111",
-                    padding: "1px 6px",
-                    borderRadius: "2px",
+                    padding: "2px 6px",
+                    borderRadius: "4px",
                     color: "#A78BFA",
                     border: "1px solid #333",
                     fontFamily: '"Geist Mono", monospace',
@@ -780,7 +802,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
               maxHeight: "400px",
               objectFit: "contain",
               border: "1px solid #333",
-              borderRadius: "2px",
+              borderRadius: "4px",
             }}
           />
         </div>
@@ -888,8 +910,8 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                   color: currentMode === "code" ? "#EAEAEA" : "#A0A0A0",
                   background: currentMode === "code" ? "#222" : "transparent",
                   border: `1px solid ${currentMode === "code" ? "#555" : "#333"}`,
-                  padding: "3px 10px",
-                  borderRadius: "2px",
+                  padding: "4px 10px",
+                  borderRadius: "4px",
                   cursor: "pointer",
                   fontFamily: '"Geist Mono", monospace',
                   transition: "all 0.15s",
@@ -907,8 +929,8 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                   background:
                     currentMode === "preview" ? "#222" : "transparent",
                   border: `1px solid ${currentMode === "preview" ? "#555" : "#333"}`,
-                  padding: "3px 10px",
-                  borderRadius: "2px",
+                  padding: "4px 10px",
+                  borderRadius: "4px",
                   cursor: "pointer",
                   fontFamily: '"Geist Mono", monospace',
                   transition: "all 0.15s",
@@ -928,122 +950,180 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
 
   // ─────────────────────────────────────────────
   // Input Area
-  // ─────────────────────────────────────────────
-  const renderInputArea = () => (
-    <div
-      style={{
-        background: "#000000",
-        padding: "10px 14px",
-        display: "flex",
-        alignItems: "center",
-        gap: "12px",
-        border: "1px solid #333",
-        borderRadius: "4px",
-        transition: "border-color 0.2s",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = "#555";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "#333";
-      }}
-    >
+  // ------------------------------------------------------------------
+  const renderInputArea = () => {
+    if (!isSignedIn) {
+      return (
+        <div
+          style={{
+            background: "#080808",
+            padding: "20px 16px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "12px",
+            border: "1px solid #333",
+            borderRadius: "8px",
+            transition: "border-color 0.2s, box-shadow 0.2s",
+            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.4)",
+          }}
+        >
+          <div
+            style={{
+              color: "#666",
+              fontFamily: '"Geist Mono", monospace',
+              fontSize: "12px",
+              textAlign: "center",
+              lineHeight: "1.5",
+            }}
+          >
+            <div style={{ marginBottom: "8px", color: "#888", fontSize: "13px" }}>
+              AUTHENTICATION REQUIRED
+            </div>
+            <div style={{ fontSize: "11px", opacity: 0.8 }}>
+              Please log in to send messages
+            </div>
+          </div>
+          <button
+            onClick={() => (window.location.href = "/login")}
+            style={{
+              background: "#EAEAEA",
+              border: "1px solid #EAEAEA",
+              color: "#000000",
+              cursor: "pointer",
+              padding: "8px 20px",
+              fontSize: "11px",
+              fontWeight: 600,
+              fontFamily: '"Geist Mono", monospace',
+              textTransform: "uppercase",
+              transition: "all 0.15s ease",
+              borderRadius: "6px",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "#FFFFFF";
+              e.currentTarget.style.borderColor = "#FFFFFF";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "#EAEAEA";
+              e.currentTarget.style.borderColor = "#EAEAEA";
+            }}
+          >
+            Log In
+          </button>
+        </div>
+      );
+    }
+
+    return (
       <div
         style={{
-          color: "#888",
-          fontFamily: '"Geist Mono", monospace',
-          fontSize: "14px",
-          userSelect: "none",
+          background: "#080808",
+          padding: "12px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          border: "1px solid #333",
+          borderRadius: "8px",
+          transition: "border-color 0.2s, box-shadow 0.2s",
+          boxShadow: "0 4px 20px rgba(0, 0, 0, 0.4)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = "#555";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = "#333";
         }}
       >
-        &gt;
-      </div>
-      <textarea
-        ref={textareaRef}
-        value={input}
-        onChange={handleInputChange}
-        onKeyDown={handleKeyDown}
-        placeholder="Enter command..."
-        rows={1}
-        style={{
-          flex: 1,
-          background: "transparent",
-          border: "none",
-          outline: "none",
-          color: "#EAEAEA",
-          fontSize: "14px",
-          fontFamily: '"Geist Mono", monospace',
-          resize: "none",
-          lineHeight: "1.4",
-          height: "auto",
-          minHeight: "24px",
-          maxHeight: "120px",
-          overflowY: "auto",
-          padding: "0",
-          margin: "0",
-        }}
-      />
-      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <button
+        <div
           style={{
+            color: "#888",
+            fontFamily: '"Geist Mono", monospace',
+            fontSize: "14px",
+            userSelect: "none",
+          }}
+        >
+          &gt;
+        </div>
+        <textarea
+          ref={textareaRef}
+          value={input}
+          onChange={handleInputChange}
+          onKeyDown={handleKeyDown}
+          placeholder="Enter command..."
+          rows={1}
+          style={{
+            flex: 1,
             background: "transparent",
             border: "none",
-            color: "#A0A0A0",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "4px",
-            borderRadius: "2px",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = "#EAEAEA";
-            (e.currentTarget as HTMLButtonElement).style.background = "#222";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = "#A0A0A0";
-            (e.currentTarget as HTMLButtonElement).style.background =
-              "transparent";
-          }}
-          title="Attach File"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-          </svg>
-        </button>
-        <button
-          onClick={() => handleSend()}
-          style={{
-            background: input.trim() ? "#EAEAEA" : "transparent",
-            border: input.trim() ? "1px solid #EAEAEA" : "1px solid #444",
-            color: input.trim() ? "#000000" : "#888",
-            cursor: input.trim() ? "pointer" : "default",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "4px 12px",
-            fontSize: "12px",
-            fontWeight: 600,
+            outline: "none",
+            color: "#EAEAEA",
+            fontSize: "14px",
             fontFamily: '"Geist Mono", monospace',
-            textTransform: "uppercase",
-            transition: "all 0.15s ease",
-            borderRadius: "2px",
+            resize: "none",
+            lineHeight: "1.5",
+            height: "auto",
+            minHeight: "24px",
+            maxHeight: "120px",
+            overflowY: "auto",
+            padding: "0",
+            margin: "0",
           }}
-        >
-          Exec
-        </button>
+        />
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <button
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#A0A0A0",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "4px 8px",
+              borderRadius: "6px",
+              transition: "all 0.15s ease",
+              fontSize: "16px",
+              fontFamily: '"Geist Mono", monospace',
+              fontWeight: 500,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "#EAEAEA";
+              (e.currentTarget as HTMLButtonElement).style.background = "#222";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "#A0A0A0";
+              (e.currentTarget as HTMLButtonElement).style.background =
+                "transparent";
+            }}
+            title="Attach File"
+          >
+            +
+          </button>
+          <button
+            onClick={() => handleSend()}
+            style={{
+              background: input.trim() ? "#EAEAEA" : "transparent",
+              border: input.trim() ? "1px solid #EAEAEA" : "1px solid #444",
+              color: input.trim() ? "#000000" : "#888",
+              cursor: input.trim() ? "pointer" : "default",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "6px 14px",
+              fontSize: "12px",
+              fontWeight: 600,
+              fontFamily: '"Geist Mono", monospace',
+              textTransform: "uppercase",
+              transition: "all 0.15s ease",
+              borderRadius: "6px",
+            }}
+          >
+            Exec
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // ─────────────────────────────────────────────
   // Main Render
@@ -1058,7 +1138,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
         overflow: "hidden",
         minWidth: 0,
         position: "relative",
-        fontFamily: "Geist, sans-serif",
+        fontFamily: '"Geist", sans-serif',
       }}
     >
       {/* Header */}
@@ -1070,6 +1150,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
           justifyContent: "space-between",
           flexShrink: 0,
           zIndex: 10,
+          borderBottom: "1px solid #111",
         }}
       >
         <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
@@ -1077,42 +1158,42 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
             onClick={onToggleSidebar}
             style={{
               background: "transparent",
-              border: "none",
+              border: "1px solid #333",
               color: "#A0A0A0",
               cursor: "pointer",
               display: isSidebarOpen ? "none" : "flex",
               alignItems: "center",
               justifyContent: "center",
-              padding: "4px",
-              borderRadius: "2px",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              transition: "all 0.2s ease",
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = "#EAEAEA";
-              (e.currentTarget as HTMLButtonElement).style.background = "#222";
+              e.currentTarget.style.borderColor = "#555";
+              (e.currentTarget as HTMLButtonElement).style.background = "#111";
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.color = "#A0A0A0";
+              e.currentTarget.style.borderColor = "#333";
               (e.currentTarget as HTMLButtonElement).style.background =
                 "transparent";
             }}
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 600,
+                fontFamily: '"Geist Mono", monospace',
+                letterSpacing: "0.5px",
+              }}
             >
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-              <line x1="9" y1="3" x2="9" y2="21" />
-            </svg>
+              MENU
+            </span>
           </button>
           <div
             style={{
-              fontSize: "12px",
+              fontSize: "13px",
               fontWeight: 600,
               color: "#EAEAEA",
               letterSpacing: "1px",
@@ -1120,34 +1201,86 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
             }}
           >
             EDGE-OS{" "}
-            <span style={{ color: "#888", fontWeight: 400 }}>// WKSP</span>
+            <span style={{ color: "#666", fontWeight: 400 }}>// WKSP</span>
           </div>
         </div>
-        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-          {isSignedIn ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {user?.firstName && (
-                <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                  {user.firstName}
-                </span>
-              )}
-              <UserButton
-                appearance={{
-                  elements: {
-                    avatarBox: { width: '32px', height: '32px' },
-                  },
-                }}
-              />
-            </div>
-          ) : (
-            <button
-              onClick={() => window.location.href = '/login'}
-              style={{ padding: '8px 16px', background: 'var(--accent-primary)', color: '#000', border: 'none', borderRadius: '20px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-              onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.opacity = '0.9'; b.style.transform = 'translateY(-1px)'; }}
-              onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.opacity = '1'; b.style.transform = 'translateY(0)'; }}>
-              Log in
-            </button>
-          )}
+
+        {/* Right Actions: Token Count & Settings */}
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          {/* Token Widget */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "6px 12px",
+              background: "#111",
+              border: "1px solid #333",
+              borderRadius: "6px",
+              fontFamily: '"Geist Mono", monospace',
+              fontSize: "11px",
+              color: "#A0A0A0",
+              cursor: "default",
+              transition: "all 0.2s ease",
+              minWidth: "120px",
+              justifyContent: "center",
+            }}
+            title="Tokens utilized this session"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#555";
+              e.currentTarget.style.color = "#EAEAEA";
+              setIsTokenHovered(true);
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#333";
+              e.currentTarget.style.color = "#A0A0A0";
+              setIsTokenHovered(false);
+            }}
+          >
+            <span>
+              {isTokenHovered
+                ? `${tokensUsed.toLocaleString()} / ${TOTAL_TOKENS.toLocaleString()}`
+                : `${tokensUsed.toLocaleString()} TOKENS`}
+            </span>
+          </div>
+
+          {/* Settings Button */}
+          <button
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "6px 12px",
+              background: "transparent",
+              border: "1px solid #333",
+              borderRadius: "6px",
+              color: "#A0A0A0",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+            title="Settings"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#555";
+              e.currentTarget.style.color = "#EAEAEA";
+              e.currentTarget.style.background = "#111";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = "#333";
+              e.currentTarget.style.color = "#A0A0A0";
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 600,
+                fontFamily: '"Geist Mono", monospace',
+                letterSpacing: "0.5px",
+              }}
+            >
+              SETTINGS
+            </span>
+          </button>
         </div>
       </div>
 
@@ -1196,6 +1329,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                     color: "#FFFFFF",
                     letterSpacing: "-1px",
                     margin: 0,
+                    fontFamily: '"Geist", sans-serif',
                   }}
                 >
                   System Initialized.
@@ -1207,6 +1341,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                     marginTop: "16px",
                     maxWidth: "600px",
                     lineHeight: "1.6",
+                    fontFamily: '"Geist", sans-serif',
                   }}
                 >
                   Development environment active. Awaiting input for
@@ -1234,6 +1369,8 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                   gap: "1px",
                   background: "#333",
                   border: "1px solid #333",
+                  borderRadius: "8px",
+                  overflow: "hidden",
                 }}
               >
                 {[
@@ -1261,7 +1398,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                       flexDirection: "column",
                       alignItems: "flex-start",
                       padding: "24px 20px",
-                      background: "#000",
+                      background: "#080808",
                       border: "none",
                       cursor: "pointer",
                       textAlign: "left",
@@ -1273,7 +1410,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                     }}
                     onMouseLeave={(e) => {
                       (e.currentTarget as HTMLButtonElement).style.background =
-                        "#000";
+                        "#080808";
                     }}
                   >
                     <div
@@ -1288,16 +1425,17 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                         textTransform: "uppercase",
                       }}
                     >
-                      <span style={{ color: "#A0A0A0", marginRight: "8px" }}>
+                      <span style={{ color: "#666", marginRight: "8px" }}>
                         &gt;
                       </span>
                       {prompt.title}
                     </div>
                     <div
                       style={{
-                        color: "#A0A0A0",
+                        color: "#888",
                         fontSize: "13px",
                         lineHeight: "1.6",
+                        fontFamily: '"Geist", sans-serif',
                       }}
                     >
                       {prompt.desc}
@@ -1326,7 +1464,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                     alignItems: "flex-start",
                     padding: "24px 0",
                     borderBottom:
-                      idx !== messages.length - 1 ? "1px solid #333" : "none",
+                      idx !== messages.length - 1 ? "1px solid #222" : "none",
                     width: "100%",
                   }}
                 >
@@ -1358,11 +1496,11 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                           style={{
                             fontSize: "10px",
                             color: "#A0A0A0",
-                            background: "#080808",
+                            background: "#111",
                             border: "1px solid #333",
                             padding: "4px 8px",
                             fontFamily: '"Geist Mono", monospace',
-                            borderRadius: "2px",
+                            borderRadius: "4px",
                           }}
                         >
                           {tool}
@@ -1377,6 +1515,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                       fontSize: "14px",
                       lineHeight: "1.7",
                       whiteSpace: "pre-line",
+                      fontFamily: '"Geist", sans-serif',
                     }}
                   >
                     {msg.content}
@@ -1386,7 +1525,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                           marginTop: "20px",
                           border: "1px solid #333",
                           background: "#000",
-                          borderRadius: "4px",
+                          borderRadius: "8px",
                           overflow: "hidden",
                         }}
                       >
@@ -1408,10 +1547,16 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                   </div>
                   {msg.options &&
                     msg.options.length > 0 &&
-                    msg.role === "assistant" && (() => {
+                    msg.role === "assistant" &&
+                    (() => {
                       // Only show option buttons on last assistant message
-                      const lastAssistantIdx = messages.reduce((acc, m, i) => m.role === 'assistant' ? i : acc, -1);
-                      const currentIdx = messages.findIndex(m => m.id === msg.id);
+                      const lastAssistantIdx = messages.reduce(
+                        (acc, m, i) => (m.role === "assistant" ? i : acc),
+                        -1,
+                      );
+                      const currentIdx = messages.findIndex(
+                        (m) => m.id === msg.id,
+                      );
                       if (currentIdx !== lastAssistantIdx) return null;
                       return (
                         <div
@@ -1426,23 +1571,35 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                             <button
                               key={i}
                               onClick={() => {
-                                if (option.toLowerCase() === 'modify') {
+                                if (option.toLowerCase() === "modify") {
                                   setIsModifyMode(true);
-                                  setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: 'Tell me what you want to change in the configuration.', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+                                  setMessages((prev) => [
+                                    ...prev,
+                                    {
+                                      id: Date.now().toString(),
+                                      role: "assistant",
+                                      content:
+                                        "Tell me what you want to change in the configuration.",
+                                      timestamp: new Date().toLocaleTimeString(
+                                        [],
+                                        { hour: "2-digit", minute: "2-digit" },
+                                      ),
+                                    },
+                                  ]);
                                   return;
                                 }
                                 handleSend(option);
                               }}
                               style={{
                                 padding: "8px 16px",
-                                background: "#000",
+                                background: "#080808",
                                 border: "1px solid #333",
                                 color: "#EAEAEA",
                                 fontSize: "11px",
                                 fontFamily: '"Geist Mono", monospace',
                                 cursor: "pointer",
                                 transition: "all 0.2s ease",
-                                borderRadius: "2px",
+                                borderRadius: "4px",
                                 textTransform: "uppercase",
                                 fontWeight: 500,
                               }}
@@ -1460,7 +1617,7 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                               onMouseLeave={(e) => {
                                 (
                                   e.currentTarget as HTMLButtonElement
-                                ).style.background = "#000";
+                                ).style.background = "#080808";
                                 (
                                   e.currentTarget as HTMLButtonElement
                                 ).style.color = "#EAEAEA";
@@ -1476,7 +1633,17 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
                       );
                     })()}
 
-                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', padding: '0 4px' }}>{msg.timestamp}</span>
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: "#666",
+                      marginTop: "16px",
+                      padding: "0",
+                      fontFamily: '"Geist Mono", monospace',
+                    }}
+                  >
+                    {msg.timestamp}
+                  </span>
                 </div>
               ))}
               {isTyping && (
@@ -1520,13 +1687,13 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
         {/* Fixed input */}
         <div
           style={{
-            position: "fixed",
+            position: "absolute",
             bottom: 0,
             left: 0,
             right: 0,
-            background: "#000000",
-            borderTop: "1px solid #333",
-            padding: "16px 20px",
+            background:
+              "linear-gradient(to top, rgba(0,0,0,1) 60%, rgba(0,0,0,0))",
+            padding: "24px 20px",
             zIndex: 10,
           }}
         >
@@ -1546,10 +1713,10 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
         @keyframes pipPulse { 0%,100%{opacity:0.8;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }
         @keyframes pipGlow { 0%,100%{opacity:0.3} 50%{opacity:0.8} }
         @keyframes pipFade { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:translateY(0)} }
-        textarea::placeholder{color:#888}
+        textarea::placeholder{color:#666}
         ::-webkit-scrollbar{width:4px;height:4px}
         ::-webkit-scrollbar-track{background:transparent}
-        ::-webkit-scrollbar-thumb{background:#333;border-radius:2px}
+        ::-webkit-scrollbar-thumb{background:#333;border-radius:4px}
         ::-webkit-scrollbar-thumb:hover{background:#555}
       `,
         }}

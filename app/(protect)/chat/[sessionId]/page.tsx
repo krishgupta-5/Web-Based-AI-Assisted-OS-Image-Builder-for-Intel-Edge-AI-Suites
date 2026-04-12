@@ -16,8 +16,60 @@ const agentNames: Record<string, string> = {
 export default function ChatSession() {
     const [activeAgentId, setActiveAgentId] = useState('1');
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [sidebarWidth, setSidebarWidth] = useState(260);
     const params = useParams();
     const sessionId = params.sessionId as string;
+
+    const handleResize = (e: MouseEvent) => {
+        e.preventDefault();
+        const newWidth = e.clientX;
+        if (newWidth >= 200 && newWidth <= 500) {
+            setSidebarWidth(newWidth);
+        }
+    };
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'col-resize';
+        
+        let rafId: number;
+        let lastWidth = sidebarWidth;
+        
+        const handleMouseMove = (moveEvent: MouseEvent) => {
+            moveEvent.preventDefault();
+            
+            // Cancel previous animation frame
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+            }
+            
+            // Use requestAnimationFrame for smooth updates
+            rafId = requestAnimationFrame(() => {
+                const newWidth = moveEvent.clientX;
+                if (newWidth >= 200 && newWidth <= 500 && newWidth !== lastWidth) {
+                    lastWidth = newWidth;
+                    setSidebarWidth(newWidth);
+                }
+            });
+        };
+
+        const handleMouseUp = () => {
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+            
+            // Cancel any pending animation frame
+            if (rafId) {
+                cancelAnimationFrame(rafId);
+            }
+            
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+    };
 
     return (
         <div
@@ -37,6 +89,9 @@ export default function ChatSession() {
                     activeAgentId={activeAgentId}
                     onSelectAgent={setActiveAgentId}
                     isOpen={isSidebarOpen}
+                    onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+                    sidebarWidth={sidebarWidth}
+                    onResize={handleMouseDown}
                 />
 
                 
