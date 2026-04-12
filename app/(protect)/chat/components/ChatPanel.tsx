@@ -191,14 +191,22 @@ export default function ChatPanel({ agentName, onToggleSidebar, isSidebarOpen = 
         const currentSessionId = sessionId || getSessionId();
         
         // First, load messages to get the conversation flow
-        const messagesResponse = await fetch(`/api/chat-history?sessionId=${currentSessionId}`);
-        if (!messagesResponse.ok) return;
-        
-        const messagesData = await messagesResponse.json();
+        let messagesResponse;
+        let messagesData;
         let foundCompleteResult = false;
         let completeResultData = null;
         
-        const historyMessages: Message[] = messagesData.messages.map((msg: any) => {
+        try {
+          messagesResponse = await fetch(`/api/chat-history?sessionId=${currentSessionId}`);
+          if (!messagesResponse.ok) return;
+          
+          messagesData = await messagesResponse.json();
+        } catch (error) {
+          console.error('Failed to fetch chat history:', error);
+          return;
+        }
+        
+        const historyMessages: Message[] = (messagesData?.messages || []).map((msg: any) => {
           let content = msg.content;
           
           // For assistant messages, check if they contain complete result data
