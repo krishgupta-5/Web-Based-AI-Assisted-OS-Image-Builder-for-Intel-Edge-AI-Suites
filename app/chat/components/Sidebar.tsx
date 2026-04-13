@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CSSProperties } from "react";
 import { useUser, SignOutButton, SignInButton } from "@clerk/nextjs";
 import { resetSessionId } from "@/app/api/generate/Sessionid";
@@ -29,6 +29,27 @@ export default function Sidebar({
   const { user, isSignedIn } = useUser();
   const [userSessions, setUserSessions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    sessionId: string;
+    sessionTitle: string;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Filter sessions based on search query
+  const filteredSessions = useMemo(() => {
+    if (!searchQuery.trim()) return userSessions;
+    
+    const query = searchQuery.toLowerCase();
+    return userSessions.filter((session) => {
+      const title = (session.lastMessage || `Chat with ${session.messageCount} messages`).toLowerCase();
+      const sessionId = session.sessionId.toLowerCase();
+      return title.includes(query) || sessionId.includes(query);
+    });
+  }, [userSessions, searchQuery]);
 
   // Memoize sidebar styles to prevent unnecessary re-renders
   const sidebarStyles = useMemo(
@@ -60,6 +81,30 @@ export default function Sidebar({
     }
   }, [isOpen, isSignedIn]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    const handleContextMenu = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    if (contextMenu?.visible) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('contextmenu', handleContextMenu);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [contextMenu?.visible]);
+
   const fetchUserSessions = async () => {
     setLoading(true);
     try {
@@ -84,6 +129,60 @@ export default function Sidebar({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        setUserSessions(prev => prev.filter(session => session.sessionId !== sessionId));
+        setContextMenu(null);
+      } else {
+        console.error('Failed to delete session:', response.status);
+      }
+    } catch (error) {
+      console.error('Error deleting session:', error);
+    }
+  };
+
+  const handleRenameSession = (sessionId: string, currentTitle: string) => {
+    const newTitle = prompt('Enter new title:', currentTitle);
+    if (newTitle && newTitle !== currentTitle) {
+      // TODO: Implement rename API call
+      console.log('Rename session:', sessionId, 'to:', newTitle);
+    }
+    setContextMenu(null);
+  };
+
+  const handleExportSession = async (sessionId: string) => {
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/export`, {
+        credentials: 'include',
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `chat-${sessionId}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Error exporting session:', error);
+    }
+    setContextMenu(null);
   };
 
   const handleNewChat = () => {
@@ -202,6 +301,8 @@ export default function Sidebar({
           <input
             type="text"
             placeholder="Search logs..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             style={{
               background: "transparent",
               border: "none",
@@ -246,7 +347,7 @@ export default function Sidebar({
               Log in to view history
             </div>
           </div>
-        ) : userSessions.length > 0 ? (
+        ) : filteredSessions.length > 0 ? (
           <>
             <div
               style={{
@@ -259,9 +360,9 @@ export default function Sidebar({
                 paddingLeft: "8px",
               }}
             >
-              CHATS
+              CHATS {searchQuery && `(${filteredSessions.length})`}
             </div>
-            {userSessions.map((session) => (
+            {filteredSessions.map((session) => (
               <HistoryItem
                 key={session.sessionId}
                 sessionId={session.sessionId}
@@ -270,9 +371,35 @@ export default function Sidebar({
                   `Chat with ${session.messageCount} messages`
                 }
                 timestamp={session.updatedAt}
+                onContextMenu={(e, sessionId, sessionTitle) => {
+                  e.preventDefault();
+                  setContextMenu({
+                    visible: true,
+                    x: e.clientX,
+                    y: e.clientY,
+                    sessionId,
+                    sessionTitle,
+                  });
+                }}
               />
             ))}
           </>
+        ) : searchQuery ? (
+          <div
+            style={{
+              padding: "40px 20px",
+              textAlign: "center",
+              color: "#888",
+              fontFamily: '"Geist Mono", monospace',
+            }}
+          >
+            <div style={{ fontSize: "12px", marginBottom: "8px" }}>
+              NO RESULTS
+            </div>
+            <div style={{ fontSize: "10px", opacity: 0.7 }}>
+              No chats match "{searchQuery}"
+            </div>
+          </div>
         ) : (
           <div
             style={{
@@ -303,6 +430,7 @@ export default function Sidebar({
         }}
       >
         <button
+          onClick={() => window.location.href = "/pricing"}
           style={{
             display: "flex",
             alignItems: "center",
@@ -335,6 +463,7 @@ export default function Sidebar({
 
         {isSignedIn && (
           <button
+            onClick={() => window.location.href = "/settings"}
             style={{
               display: "flex",
               alignItems: "center",
@@ -369,6 +498,7 @@ export default function Sidebar({
         {isSignedIn ? (
           <>
             <button
+              onClick={() => window.location.href = "/settings"}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -491,6 +621,96 @@ export default function Sidebar({
           }}
         />
       )}
+
+      {/* Context Menu */}
+      {contextMenu?.visible && (
+        <div
+          ref={contextMenuRef}
+          style={{
+            position: 'fixed',
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+            background: '#0A0A0A',
+            border: '1px solid #333',
+            borderRadius: '4px',
+            padding: '4px 0',
+            zIndex: 1000,
+            minWidth: '150px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          }}
+        >
+          <button
+            onClick={() => handleRenameSession(contextMenu.sessionId, contextMenu.sessionTitle)}
+            style={{
+              width: '100%',
+              padding: '8px 16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#EAEAEA',
+              fontSize: '11px',
+              fontFamily: '"Geist Mono", monospace',
+              textAlign: 'left',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#222';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            RENAME
+          </button>
+          <button
+            onClick={() => handleExportSession(contextMenu.sessionId)}
+            style={{
+              width: '100%',
+              padding: '8px 16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#EAEAEA',
+              fontSize: '11px',
+              fontFamily: '"Geist Mono", monospace',
+              textAlign: 'left',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#222';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            EXPORT
+          </button>
+          <div style={{ height: '1px', background: '#333', margin: '4px 0' }} />
+          <button
+            onClick={() => handleDeleteSession(contextMenu.sessionId)}
+            style={{
+              width: '100%',
+              padding: '8px 16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#ff6b6b',
+              fontSize: '11px',
+              fontFamily: '"Geist Mono", monospace',
+              textAlign: 'left',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,107,107,0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            DELETE
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
@@ -501,11 +721,13 @@ function HistoryItem({
   title,
   timestamp,
   active = false,
+  onContextMenu,
 }: {
   sessionId: string;
   title: string;
   timestamp: Date | string;
   active?: boolean;
+  onContextMenu?: (e: React.MouseEvent, sessionId: string, sessionTitle: string) => void;
 }) {
   const formatDate = (date: Date | string) => {
     const now = new Date();
@@ -558,6 +780,9 @@ function HistoryItem({
       }}
       onClick={() => {
         window.location.href = `/chat/${sessionId}`;
+      }}
+      onContextMenu={(e) => {
+        onContextMenu?.(e, sessionId, title);
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>

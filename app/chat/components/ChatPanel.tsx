@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { getSessionId } from "@/app/api/generate/Sessionid";
 import DbSchemaViewer from "@/app/chat/components/DbSchemaViewer";
 import PipelineViewer from "@/app/chat/components/PipelineViewer";
@@ -134,6 +135,7 @@ export default function ChatPanel({
   onShowLoginModal,
 }: ChatPanelProps) {
   const { isSignedIn } = useUser();
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -155,6 +157,15 @@ export default function ChatPanel({
   const [activePipelineNodes, setActivePipelineNodes] = useState<
     Record<string, string | null>
   >({});
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    messageId: string;
+    messageContent: string;
+    messageRole: string;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () =>
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -162,6 +173,59 @@ export default function ChatPanel({
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    const handleContextMenu = (event: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        setContextMenu(null);
+      }
+    };
+
+    if (contextMenu?.visible) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('contextmenu', handleContextMenu);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('contextmenu', handleContextMenu);
+    };
+  }, [contextMenu?.visible]);
+
+  const handleCopyMessage = async (content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+    } catch {
+      const el = document.createElement("textarea");
+      el.value = content;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    }
+    setContextMenu(null);
+  };
+
+  const handleDeleteMessage = (messageId: string) => {
+    setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    setContextMenu(null);
+  };
+
+  const handleEditMessage = (messageId: string, content: string) => {
+    const newContent = prompt('Edit message:', content);
+    if (newContent && newContent !== content) {
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId ? { ...msg, content: newContent } : msg
+      ));
+    }
+    setContextMenu(null);
+  };
 
   // Load chat history on component mount
   useEffect(() => {
@@ -1201,6 +1265,7 @@ export default function ChatPanel({
 
           {/* Settings Button */}
           <button
+            onClick={() => router.push("/settings")}
             style={{
               display: "flex",
               alignItems: "center",
@@ -1422,6 +1487,17 @@ export default function ChatPanel({
                     borderBottom:
                       idx !== messages.length - 1 ? "1px solid #222" : "none",
                     width: "100%",
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({
+                      visible: true,
+                      x: e.clientX,
+                      y: e.clientY,
+                      messageId: msg.id,
+                      messageContent: msg.content,
+                      messageRole: msg.role,
+                    });
                   }}
                 >
                   <div
@@ -1658,6 +1734,98 @@ export default function ChatPanel({
           </div>
         </div>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu?.visible && (
+        <div
+          ref={contextMenuRef}
+          style={{
+            position: 'fixed',
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`,
+            background: '#0A0A0A',
+            border: '1px solid #333',
+            borderRadius: '4px',
+            padding: '4px 0',
+            zIndex: 1000,
+            minWidth: '150px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          }}
+        >
+          <button
+            onClick={() => handleCopyMessage(contextMenu.messageContent)}
+            style={{
+              width: '100%',
+              padding: '8px 16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#EAEAEA',
+              fontSize: '11px',
+              fontFamily: '"Geist Mono", monospace',
+              textAlign: 'left',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#222';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            COPY
+          </button>
+          {contextMenu.messageRole === 'user' && (
+            <button
+              onClick={() => handleEditMessage(contextMenu.messageId, contextMenu.messageContent)}
+              style={{
+                width: '100%',
+                padding: '8px 16px',
+                background: 'transparent',
+                border: 'none',
+                color: '#EAEAEA',
+                fontSize: '11px',
+                fontFamily: '"Geist Mono", monospace',
+                textAlign: 'left',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#222';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              EDIT
+            </button>
+          )}
+          <div style={{ height: '1px', background: '#333', margin: '4px 0' }} />
+          <button
+            onClick={() => handleDeleteMessage(contextMenu.messageId)}
+            style={{
+              width: '100%',
+              padding: '8px 16px',
+              background: 'transparent',
+              border: 'none',
+              color: '#ff6b6b',
+              fontSize: '11px',
+              fontFamily: '"Geist Mono", monospace',
+              textAlign: 'left',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,107,107,0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+            }}
+          >
+            DELETE
+          </button>
+        </div>
+      )}
 
       <style
         dangerouslySetInnerHTML={{
