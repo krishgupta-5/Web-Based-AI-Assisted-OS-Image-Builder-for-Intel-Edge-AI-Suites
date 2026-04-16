@@ -8,6 +8,7 @@ service cloud.firestore {
     }
     
     // Only allow authenticated users to access their own sessions
+    // Only allow authenticated users to access their own sessions
     match /sessions/{sessionId} {
       allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
       
@@ -24,6 +25,11 @@ service cloud.firestore {
         allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
         allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
       }
+    }
+
+    // Token quotas - server-only access via Admin SDK
+    match /token_quotas/{userId} {
+      allow read, write: if false; // server-only via admin SDK
     }
   }
 }

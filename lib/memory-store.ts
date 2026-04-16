@@ -1,7 +1,14 @@
-// Temporary in-memory store for development until Firebase billing is resolved
+// lib/memory-store.ts
+// FIX 3 & 7: Replaced in-memory Map with Firestore-backed store.
+// The previous implementation lost ALL data on every serverless cold start
+// (roughly every few minutes on Vercel). Now every read/write goes to Firestore
+// so state survives restarts.
+
+import { db } from "@/lib/firebase-admin";
+
 interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
   userId: string;
   createdAt: Date;
@@ -20,92 +27,140 @@ interface Session {
   updatedAt: Date;
 }
 
-class MemoryStore {
-  private messages = new Map<string, Message[]>();
-  private artifacts = new Map<string, Artifact[]>();
-  private sessions = new Map<string, Session>();
+class PersistentStore {
+  // ── Messages ────────────────────────────────────────────────────────────────
 
-  // Message operations
-  async addMessage(sessionId: string, message: Omit<Message, 'id' | 'createdAt'>): Promise<string> {
-    const id = Math.random().toString(36).substr(2, 9);
-    const fullMessage: Message = {
-      ...message,
-      id,
-      createdAt: new Date(),
-    };
-    
-    const sessionMessages = this.messages.get(sessionId) || [];
-    sessionMessages.push(fullMessage);
-    this.messages.set(sessionId, sessionMessages);
-    
-    return id;
+  async addMessage(
+    sessionId: string,
+    message: Omit<Message, "id" | "createdAt">
+  ): Promise<string> {
+    const ref = await db
+      .collection("sessions")
+      .doc(sessionId)
+      .collection("messages")
+      .add({ ...message, createdAt: new Date() });
+    return ref.id;
   }
 
   async getMessages(sessionId: string, userId: string): Promise<Message[]> {
-    const sessionMessages = this.messages.get(sessionId) || [];
-    return sessionMessages.filter(msg => msg.userId === userId);
+    const snap = await db
+      .collection("sessions")
+      .doc(sessionId)
+      .collection("messages")
+      .where("userId", "==", userId)
+      .get();
+
+    return snap.docs
+      .map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate() ?? new Date(),
+        } as Message;
+      })
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
-  // Artifact operations
-  async addArtifact(sessionId: string, artifact: Omit<Artifact, 'id' | 'createdAt'>): Promise<string> {
-    const id = Math.random().toString(36).substr(2, 9);
-    const fullArtifact: Artifact = {
-      ...artifact,
-      id,
-      createdAt: new Date(),
-    };
-    
-    const sessionArtifacts = this.artifacts.get(sessionId) || [];
-    sessionArtifacts.push(fullArtifact);
-    this.artifacts.set(sessionId, sessionArtifacts);
-    
-    return id;
+  // ── Artifacts ────────────────────────────────────────────────────────────────
+
+  async addArtifact(
+    sessionId: string,
+    artifact: Omit<Artifact, "id" | "createdAt">
+  ): Promise<string> {
+    const ref = await db
+      .collection("sessions")
+      .doc(sessionId)
+      .collection("artifacts")
+      .add({ ...artifact, createdAt: new Date() });
+    return ref.id;
   }
 
   async getArtifacts(sessionId: string, userId: string): Promise<Artifact[]> {
-    const sessionArtifacts = this.artifacts.get(sessionId) || [];
-    return sessionArtifacts.filter(artifact => artifact.userId === userId);
+    const snap = await db
+      .collection("sessions")
+      .doc(sessionId)
+      .collection("artifacts")
+      .where("userId", "==", userId)
+      .get();
+
+    return snap.docs
+      .map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          createdAt: data.createdAt?.toDate() ?? new Date(),
+        } as Artifact;
+      })
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
-  // Session operations
-  async updateSession(sessionId: string, session: Partial<Session>): Promise<void> {
-    const existing = this.sessions.get(sessionId) || { userId: '', updatedAt: new Date() };
-    this.sessions.set(sessionId, { ...existing, ...session, updatedAt: new Date() });
+  // ── Session metadata ─────────────────────────────────────────────────────────
+
+  async updateSession(
+    sessionId: string,
+    session: Partial<Session>
+  ): Promise<void> {
+    await db
+      .collection("sessions")
+      .doc(sessionId)
+      .set({ ...session, updatedAt: new Date() }, { merge: true });
   }
 
   async getSession(sessionId: string): Promise<Session | null> {
-    return this.sessions.get(sessionId) || null;
+    const doc = await db.collection("sessions").doc(sessionId).get();
+    if (!doc.exists) return null;
+    const data = doc.data()!;
+    return {
+      userId: data.userId,
+      updatedAt: data.updatedAt?.toDate() ?? new Date(),
+    };
   }
 
-  async getUserSessions(userId: string): Promise<{ sessionId: string; updatedAt: Date; messageCount: number; lastMessage?: string }[]> {
-    const userSessions = [];
-    for (const [sessionId, session] of this.sessions.entries()) {
-      if (session.userId === userId) {
-        const messages = this.messages.get(sessionId) || [];
-        const userMessages = messages.filter(msg => msg.userId === userId);
-        const lastUserMessage = userMessages
-          .filter(msg => msg.role === 'user')
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-        
-        userSessions.push({
+  async getUserSessions(
+    userId: string
+  ): Promise<
+    { sessionId: string; updatedAt: Date; messageCount: number; lastMessage?: string }[]
+  > {
+    const snap = await db
+      .collection("sessions")
+      .where("userId", "==", userId)
+      .get();
+
+    const results = await Promise.all(
+      snap.docs.map(async (doc) => {
+        const sessionId = doc.id;
+        const data = doc.data();
+
+        const msgSnap = await db
+          .collection("sessions")
+          .doc(sessionId)
+          .collection("messages")
+          .get();
+
+        const userMessages = msgSnap.docs
+          .map((m) => m.data())
+          .filter((m) => m.role === "user")
+          .sort((a, b) => {
+            const ta = a.createdAt?.toDate?.()?.getTime() ?? 0;
+            const tb = b.createdAt?.toDate?.()?.getTime() ?? 0;
+            return tb - ta;
+          });
+
+        return {
           sessionId,
-          updatedAt: session.updatedAt,
-          messageCount: userMessages.length,
-          lastMessage: lastUserMessage?.content
-        });
-      }
-    }
-    
-    // Sort by most recently updated
-    return userSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-  }
+          updatedAt: data.updatedAt?.toDate() ?? new Date(),
+          messageCount: msgSnap.size,
+          lastMessage: userMessages[0]?.content as string | undefined,
+        };
+      })
+    );
 
-  // Clear all data (for testing)
-  clear(): void {
-    this.messages.clear();
-    this.artifacts.clear();
-    this.sessions.clear();
+    return results.sort(
+      (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
+    );
   }
 }
 
-export const memoryStore = new MemoryStore();
+export const memoryStore = new PersistentStore();

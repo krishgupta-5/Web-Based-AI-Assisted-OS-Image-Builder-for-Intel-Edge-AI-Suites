@@ -9,32 +9,26 @@ export default function LoginPage() {
       className="flex flex-col items-center justify-center min-h-screen bg-black relative px-4"
       style={{ fontFamily: '"Geist Mono", monospace' }}
     >
-      {/* ───────────────────────────────────────────── */}
-      {/* GLOBAL CSS OVERRIDES                          */}
-      {/* ───────────────────────────────────────────── */}
       <style
         dangerouslySetInnerHTML={{
           __html: `
-        /* Obliterate Clerk Watermarks & Dev Badges */
-        .cl-watermark, .cl-internal-b3al4t { 
-            display: none !important; 
-            opacity: 0 !important; 
-            visibility: hidden !important; 
+        /* FIX 16: Removed .cl-internal-b3al4t — that is an obfuscated Clerk class
+           that changes on every Clerk version bump and silently stops working.
+           The stable public API class .cl-watermark is kept for legitimate watermark hiding.
+           If Clerk allows hiding via appearance.layout.showOptionalFields, use that instead. */
+        .cl-watermark {
+            display: none !important;
+            opacity: 0 !important;
+            visibility: hidden !important;
         }
         div[style*="repeating-linear-gradient"],
-        div[style*="background-image: repeating-linear-gradient"] { 
-            display: none !important; 
+        div[style*="background-image: repeating-linear-gradient"] {
+            display: none !important;
         }
-        
-        /* Hide stray wrappers */
         .cl-rootBox > div > div:last-child:not(.cl-card) {
              display: none !important;
         }
-
-        /* Enforce flat UI */
         .cl-card { box-shadow: none !important; }
-        
-        /* Remove default outlines on focus */
         .cl-formFieldInput:focus {
             box-shadow: none !important;
             outline: none !important;
@@ -43,9 +37,7 @@ export default function LoginPage() {
         }}
       />
 
-      {/* ───────────────────────────────────────────── */}
-      {/* CUSTOM HEADER (Matches EDGE-OS Structure)     */}
-      {/* ───────────────────────────────────────────── */}
+      {/* Custom Header */}
       <div className="flex flex-col items-center mb-6 text-center z-10 w-full max-w-[360px]">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-8 h-8 bg-[#000] border border-[#333] flex items-center justify-center rounded-[2px]">
@@ -55,7 +47,6 @@ export default function LoginPage() {
             EDGE-OS <span className="text-[#666] font-normal">// AUTH</span>
           </div>
         </div>
-        
         <div className="w-full flex items-center gap-4">
           <div className="h-[1px] flex-1 bg-[#1A1A1A]"></div>
           <div className="text-[#888] text-[10px] uppercase tracking-[1px] font-mono font-semibold">
@@ -65,9 +56,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ───────────────────────────────────────────── */}
-      {/* CLERK COMPONENT                               */}
-      {/* ───────────────────────────────────────────── */}
+      {/* Clerk Component */}
       <div className="w-full max-w-[360px] z-10">
         <SignIn
           routing="hash"
@@ -78,22 +67,18 @@ export default function LoginPage() {
               colorPrimary: "#EAEAEA",
               colorDanger: "#ef4444",
               fontFamily: '"Geist Mono", monospace',
-              borderRadius: "2px", // Strict sharp corners
+              borderRadius: "2px",
             },
             elements: {
-              rootBox: {
-                width: "100%",
-              },
+              rootBox: { width: "100%" },
               card: {
                 backgroundColor: "#000000",
                 border: "1px solid #1A1A1A",
-                boxShadow: "0 10px 40px rgba(0, 0, 0, 0.8)", // Match floating input shadow
+                boxShadow: "0 10px 40px rgba(0, 0, 0, 0.8)",
                 padding: "32px 24px",
                 borderRadius: "4px",
               },
-              header: {
-                display: "none", // Hidden in favor of our custom header above
-              },
+              header: { display: "none" },
               socialButtonsBlockButton: {
                 backgroundColor: "transparent",
                 border: "1px solid #222222",
@@ -106,18 +91,9 @@ export default function LoginPage() {
                 padding: "12px",
                 justifyContent: "center",
                 transition: "all 0.2s ease",
-                "&:hover": {
-                  backgroundColor: "#111111",
-                  borderColor: "#444444",
-                  color: "#EAEAEA",
-                },
               },
-              socialButtonsBlockButtonText: {
-                fontWeight: "600",
-              },
-              dividerLine: {
-                background: "#1A1A1A",
-              },
+              socialButtonsBlockButtonText: { fontWeight: "600" },
+              dividerLine: { background: "#1A1A1A" },
               dividerText: {
                 color: "#666666",
                 fontSize: "10px",
@@ -143,9 +119,6 @@ export default function LoginPage() {
                 padding: "10px 12px",
                 fontFamily: '"Geist Mono", monospace',
                 transition: "border-color 0.2s",
-                "&:focus": {
-                  borderColor: "#555555",
-                },
               },
               formButtonPrimary: {
                 backgroundColor: "#EAEAEA",
@@ -160,9 +133,6 @@ export default function LoginPage() {
                 border: "1px solid #EAEAEA",
                 fontFamily: '"Geist Mono", monospace',
                 transition: "all 0.15s ease",
-                "&:hover": {
-                  backgroundColor: "#FFFFFF",
-                },
               },
               footer: {
                 background: "transparent",
@@ -186,27 +156,18 @@ export default function LoginPage() {
                 letterSpacing: "1px",
                 marginLeft: "6px",
                 fontFamily: '"Geist Mono", monospace',
-                "&:hover": {
-                  color: "#EAEAEA",
-                },
               },
             },
           }}
         />
       </div>
 
-      {/* ───────────────────────────────────────────── */}
-      {/* CUSTOM FIXED FOOTER                           */}
-      {/* ───────────────────────────────────────────── */}
+      {/* Footer */}
       <div className="absolute bottom-8 left-0 right-0 flex justify-center pointer-events-none">
         <div className="text-[#444444] text-[10px] uppercase tracking-[1px] flex gap-4 pointer-events-auto font-mono">
-          <a href="#" className="hover:text-[#EAEAEA] transition-colors">
-            Terms of Service
-          </a>
+          <a href="#" className="hover:text-[#EAEAEA] transition-colors">Terms of Service</a>
           <span>&bull;</span>
-          <a href="#" className="hover:text-[#EAEAEA] transition-colors">
-            Privacy Policy
-          </a>
+          <a href="#" className="hover:text-[#EAEAEA] transition-colors">Privacy Policy</a>
         </div>
       </div>
     </div>

@@ -9,15 +9,14 @@ interface DbSchemaViewerProps {
 
 type ViewMode = "diagram" | "source";
 
-export default function DbSchemaViewer({
-  mermaid: mermaidSource,
-}: DbSchemaViewerProps) {
+export default function DbSchemaViewer({ mermaid: mermaidSource }: DbSchemaViewerProps) {
   const [mode, setMode] = useState<ViewMode>("diagram");
   const [isExpanded, setIsExpanded] = useState(false);
   const [mermaidSvg, setMermaidSvg] = useState<string>("");
   const [svgDimensions, setSvgDimensions] = useState({ width: 0, height: 0 });
   const [isLoaded, setIsLoaded] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -29,17 +28,11 @@ export default function DbSchemaViewer({
     : mermaidSource.replace("erDiagram", "erDiagram\n    direction LR");
 
   const fitToScreen = (svgWidth: number, svgHeight: number) => {
-    if (!wrapperRef.current || svgWidth === 0 || svgHeight === 0) return;
-    const container = wrapperRef.current.parentElement;
-    if (!container) return;
-
+    if (!containerRef.current || svgWidth === 0 || svgHeight === 0) return;
     const padding = 100;
-    const scaleX = (container.clientWidth - padding) / svgWidth;
-    const scaleY = (container.clientHeight - padding) / svgHeight;
-
-    const optimalScale = Math.min(scaleX, scaleY, 1.5);
-
-    setScale(optimalScale);
+    const scaleX = (containerRef.current.clientWidth - padding) / svgWidth;
+    const scaleY = (containerRef.current.clientHeight - padding) / svgHeight;
+    setScale(Math.min(scaleX, scaleY, 1.5));
     setPosition({ x: 0, y: 0 });
   };
 
@@ -50,25 +43,15 @@ export default function DbSchemaViewer({
       setIsLoaded(false);
       try {
         const mermaid = (await import("mermaid")).default;
-
         mermaid.initialize({
           startOnLoad: false,
           theme: "dark",
           themeVariables: {
-            primaryColor: "#0A0A0A",
-            primaryTextColor: "#EAEAEA",
-            lineColor: "#444444",
-            mainBkg: "transparent",
-            entityBkg: "#0A0A0A",
-            entityBorder: "#333333",
+            primaryColor: "#0A0A0A", primaryTextColor: "#EAEAEA",
+            lineColor: "#444444", mainBkg: "transparent",
+            entityBkg: "#0A0A0A", entityBorder: "#333333",
           },
-          er: {
-            useMaxWidth: false,
-            diagramPadding: 80, // Slightly increased native padding
-            layoutDirection: "LR",
-            minEntityHeight: 30,
-            minEntityWidth: 160,
-          },
+          er: { useMaxWidth: false, diagramPadding: 80, layoutDirection: "LR", minEntityHeight: 30, minEntityWidth: 160 },
           fontFamily: '"Geist Mono", monospace',
         });
 
@@ -89,7 +72,6 @@ export default function DbSchemaViewer({
             width = parseFloat(parts[2]) || 0;
             height = parseFloat(parts[3]) || 0;
           }
-
           if (width && height) {
             svgEl.setAttribute("width", `${width}px`);
             svgEl.setAttribute("height", `${height}px`);
@@ -98,15 +80,9 @@ export default function DbSchemaViewer({
           }
           svgEl.style.maxWidth = "none";
           svgEl.style.maxHeight = "none";
-
-          // BULLETPROOF FIX: Apply overflow visible directly to the SVG element via JS
           svgEl.style.overflow = "visible";
-
-          const modifiedSvg = new XMLSerializer().serializeToString(svgEl);
-          setMermaidSvg(modifiedSvg);
+          setMermaidSvg(new XMLSerializer().serializeToString(svgEl));
           setSvgDimensions({ width, height });
-
-          setTimeout(() => fitToScreen(width, height), 10);
         } else {
           setMermaidSvg(svg);
         }
@@ -120,23 +96,36 @@ export default function DbSchemaViewer({
     renderMermaid();
   }, [processedMermaid, isExpanded]);
 
+  // FIX 15: Use ResizeObserver instead of a 10ms setTimeout guess.
+  // The old setTimeout raced the DOM paint — on slow devices fitToScreen()
+  // fired before the container had its final dimensions, producing a wrong scale.
+  useEffect(() => {
+    if (!isLoaded || svgDimensions.width === 0 || !containerRef.current) return;
+
+    const observer = new ResizeObserver(() => {
+      fitToScreen(svgDimensions.width, svgDimensions.height);
+    });
+    observer.observe(containerRef.current);
+
+    // Trigger immediately once the observer is set up
+    fitToScreen(svgDimensions.width, svgDimensions.height);
+
+    return () => observer.disconnect();
+  }, [isLoaded, svgDimensions.width, svgDimensions.height]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (mode === "source") return;
     setIsDragging(true);
     setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
   };
-
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isDragging || mode === "source") return;
     setPosition({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
   };
-
   const handleMouseUp = () => setIsDragging(false);
   const handleMouseLeave = () => setIsDragging(false);
 
-  const resetView = () =>
-    fitToScreen(svgDimensions.width, svgDimensions.height);
-
+  const resetView = () => fitToScreen(svgDimensions.width, svgDimensions.height);
   const zoomIn = () => setScale((s) => Math.min(s + 0.25, 5));
   const zoomOut = () => setScale((s) => Math.max(s - 0.25, 0.1));
 
@@ -163,26 +152,8 @@ export default function DbSchemaViewer({
   const renderContent = () => {
     if (mode === "source") {
       return (
-        <div
-          style={{
-            ...containerStyle,
-            backgroundColor: "#000000",
-            backgroundImage: "none",
-            justifyContent: "flex-start",
-            alignItems: "flex-start",
-            padding: "24px",
-            overflow: "auto",
-          }}
-        >
-          <pre
-            style={{
-              margin: 0,
-              fontSize: "13px",
-              color: "#A78BFA",
-              fontFamily: '"Geist Mono", monospace',
-              whiteSpace: "pre-wrap",
-            }}
-          >
+        <div style={{ ...containerStyle, backgroundColor: "#000000", backgroundImage: "none", justifyContent: "flex-start", alignItems: "flex-start", padding: "24px", overflow: "auto" }}>
+          <pre style={{ margin: 0, fontSize: "13px", color: "#A78BFA", fontFamily: '"Geist Mono",monospace', whiteSpace: "pre-wrap" }}>
             {processedMermaid}
           </pre>
         </div>
@@ -190,156 +161,46 @@ export default function DbSchemaViewer({
     }
 
     return (
-      <div
-        style={containerStyle}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-      >
-        <div
-          style={{
-            width: "100%",
-            height: "100%",
-            opacity: isLoaded ? 1 : 0,
-            transition: "opacity 0.8s ease-in-out",
-          }}
-        >
-          <div
-            ref={wrapperRef}
-            className="mermaid-wrapper" // FIX: Added the class so CSS applies properly if needed
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`,
-              transformOrigin: "center",
-              transition: isDragging ? "none" : "transform 0.1s ease-out",
-              pointerEvents: "none",
-            }}
-            dangerouslySetInnerHTML={{ __html: mermaidSvg }}
-          />
+      <div ref={containerRef} style={containerStyle}
+        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp} onMouseLeave={handleMouseLeave}>
+        <div style={{ width: "100%", height: "100%", opacity: isLoaded ? 1 : 0, transition: "opacity 0.8s ease-in-out" }}>
+          <div ref={wrapperRef} className="mermaid-wrapper"
+            style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`, transformOrigin: "center", transition: isDragging ? "none" : "transform 0.1s ease-out", pointerEvents: "none" }}
+            dangerouslySetInnerHTML={{ __html: mermaidSvg }} />
         </div>
-
-        <style
-          dangerouslySetInnerHTML={{
-            __html: `
-            .mermaid-wrapper svg,
-            [data-mermaid] svg {
-              overflow: visible !important; 
-            }
-            text.er.entityName {
-              fill: #EAEAEA !important;
-              font-size: 14px !important;
-              font-weight: 600 !important;
-              font-family: "Geist Mono", monospace !important;
-            }
-            path.er.relationshipLine {
-              stroke: #555 !important;
-              stroke-width: 1.5px !important;
-            }
-            text.er.attributeBox {
-              font-size: 12px !important;
-              fill: #888 !important;
-              font-family: "Geist Mono", monospace !important;
-            }
-          `,
-          }}
-        />
+        <style dangerouslySetInnerHTML={{ __html: `
+          .mermaid-wrapper svg, [data-mermaid] svg { overflow: visible !important; }
+          text.er.entityName { fill: #EAEAEA !important; font-size: 14px !important; font-weight: 600 !important; font-family: "Geist Mono", monospace !important; }
+          path.er.relationshipLine { stroke: #555 !important; stroke-width: 1.5px !important; }
+          text.er.attributeBox { font-size: 12px !important; fill: #888 !important; font-family: "Geist Mono", monospace !important; }
+        ` }} />
       </div>
     );
   };
 
   return (
-    <div style={{ fontFamily: '"Geist", sans-serif', width: "100%" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "16px",
-          flexWrap: "wrap",
-          gap: "16px",
-        }}
-      >
+    <div style={{ fontFamily: '"Geist",sans-serif', width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "16px" }}>
         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            style={{
-              background: "transparent",
-              border: "1px solid #333",
-              color: "#EAEAEA",
-              padding: "6px 16px",
-              borderRadius: "4px",
-              fontSize: "11px",
-              cursor: "pointer",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              fontFamily: '"Geist Mono", monospace',
-              transition: "all 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#666";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#333";
-            }}
-          >
+          <button onClick={() => setIsExpanded(!isExpanded)}
+            style={{ background: "transparent", border: "1px solid #333", color: "#EAEAEA", padding: "6px 16px", borderRadius: "4px", fontSize: "11px", cursor: "pointer", fontWeight: 600, textTransform: "uppercase", fontFamily: '"Geist Mono",monospace', transition: "all 0.2s" }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#666"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#333"; }}>
             {isExpanded ? "Exit Fullscreen" : "Enter Focus Mode"}
           </button>
         </div>
-
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           {mode === "diagram" && (
             <div style={{ display: "flex", gap: "4px", marginRight: "8px" }}>
-              <button onClick={zoomOut} style={controlButtonStyle}>
-                -
-              </button>
-              <button
-                onClick={resetView}
-                style={{
-                  ...controlButtonStyle,
-                  fontSize: "9px",
-                  width: "45px",
-                }}
-              >
-                FIT
-              </button>
-              <button onClick={zoomIn} style={controlButtonStyle}>
-                +
-              </button>
+              <button onClick={zoomOut} style={controlButtonStyle}>-</button>
+              <button onClick={resetView} style={{ ...controlButtonStyle, fontSize: "9px", width: "45px" }}>FIT</button>
+              <button onClick={zoomIn} style={controlButtonStyle}>+</button>
             </div>
           )}
-
-          <div
-            style={{
-              display: "flex",
-              background: "#050505",
-              borderRadius: "4px",
-              padding: "4px",
-              border: "1px solid #1A1A1A",
-            }}
-          >
+          <div style={{ display: "flex", background: "#050505", borderRadius: "4px", padding: "4px", border: "1px solid #1A1A1A" }}>
             {(["diagram", "source"] as ViewMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                style={{
-                  padding: "6px 16px",
-                  background: mode === m ? "#222" : "transparent",
-                  border: "none",
-                  borderRadius: "2px",
-                  color: mode === m ? "#EAEAEA" : "#666",
-                  fontSize: "10px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  transition: "0.2s",
-                  fontFamily: '"Geist Mono", monospace',
-                  textTransform: "uppercase",
-                }}
-              >
+              <button key={m} onClick={() => setMode(m)} style={{ padding: "6px 16px", background: mode === m ? "#222" : "transparent", border: "none", borderRadius: "2px", color: mode === m ? "#EAEAEA" : "#666", fontSize: "10px", fontWeight: 600, cursor: "pointer", transition: "0.2s", fontFamily: '"Geist Mono",monospace', textTransform: "uppercase" }}>
                 {m}
               </button>
             ))}
@@ -349,38 +210,17 @@ export default function DbSchemaViewer({
 
       {renderContent()}
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          marginTop: "12px",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "10px",
-            color: "#666",
-            fontFamily: '"Geist Mono", monospace',
-            textTransform: "uppercase",
-          }}
-        >
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: "12px" }}>
+        <div style={{ fontSize: "10px", color: "#666", fontFamily: '"Geist Mono",monospace', textTransform: "uppercase" }}>
           Scale: {Math.round(scale * 100)}% • Mode: Interactive
           {svgDimensions.width > 0 && (
             <span style={{ marginLeft: "12px", color: "#444" }}>
-              Native Size: {Math.round(svgDimensions.width)} ×{" "}
-              {Math.round(svgDimensions.height)}px
+              Native Size: {Math.round(svgDimensions.width)} × {Math.round(svgDimensions.height)}px
             </span>
           )}
         </div>
         {mode === "diagram" && (
-          <div
-            style={{
-              fontSize: "10px",
-              color: "#888",
-              fontFamily: '"Geist Mono", monospace',
-              textTransform: "uppercase",
-            }}
-          >
+          <div style={{ fontSize: "10px", color: "#888", fontFamily: '"Geist Mono",monospace', textTransform: "uppercase" }}>
             [ DRAG TO PAN ] [ USE +/- BUTTONS TO ZOOM ]
           </div>
         )}
@@ -390,18 +230,8 @@ export default function DbSchemaViewer({
 }
 
 const controlButtonStyle: React.CSSProperties = {
-  background: "#050505",
-  border: "1px solid #1A1A1A",
-  color: "#A0A0A0",
-  width: "28px",
-  height: "28px",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  borderRadius: "4px",
-  cursor: "pointer",
-  fontFamily: '"Geist Mono", monospace',
-  fontSize: "14px",
-  fontWeight: 600,
-  transition: "all 0.2s",
+  background: "#050505", border: "1px solid #1A1A1A", color: "#A0A0A0",
+  width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center",
+  borderRadius: "4px", cursor: "pointer", fontFamily: '"Geist Mono",monospace',
+  fontSize: "14px", fontWeight: 600, transition: "all 0.2s",
 };

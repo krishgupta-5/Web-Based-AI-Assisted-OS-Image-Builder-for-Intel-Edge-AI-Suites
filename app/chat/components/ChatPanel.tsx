@@ -21,8 +21,16 @@ export interface Message {
       mermaid: string;
       diagram: string;
     };
+    references?: Reference[];
   };
   options?: string[];
+}
+
+interface Reference {
+  title: string;
+  url: string;
+  description: string;
+  category: string;
 }
 
 const initialMessages: Message[] = [];
@@ -36,7 +44,7 @@ interface ChatPanelProps {
   onShowLoginModal?: (show: boolean) => void;
 }
 
-type Step = "config" | "docker" | "pipeline" | "docs" | "db";
+type Step = "config" | "docker" | "pipeline" | "docs" | "db" | "folder" | "references";
 
 // ─────────────────────────────────────────────
 // Copy Button
@@ -106,6 +114,8 @@ function LanguageBadge({ language }: { language: string }) {
     pipeline: "PIPELINE",
     dbschema: "SCHEMA",
     image: "IMG",
+    folder: "TREE",
+    references: "REFS",
   };
   return (
     <span
@@ -123,6 +133,165 @@ function LanguageBadge({ language }: { language: string }) {
     >
       {labels[language] ?? language.toUpperCase()}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// Folder Structure Viewer
+// ─────────────────────────────────────────────
+function FolderStructureViewer({ content }: { content: string }) {
+  const lines = (content ?? "").split("\n");
+
+  return (
+    <div style={{ fontFamily: '"Geist Mono", monospace', fontSize: "13px", lineHeight: "1.7" }}>
+      {lines.map((line, i) => {
+        const trimmed = line.trimEnd();
+        if (!trimmed) return <div key={i} style={{ height: "8px" }} />;
+
+        // Root folder line
+        const isRoot = i === 0 && !trimmed.startsWith("│") && !trimmed.startsWith("├") && !trimmed.startsWith("└") && !trimmed.startsWith("─");
+        // Detect if it's a folder (ends with /)
+        const isFolder = trimmed.replace(/^[├└│─\s]+/, "").endsWith("/");
+        // Detect tree chars
+        const treeMatch = trimmed.match(/^([│├└─\s]+)/);
+        const treePrefix = treeMatch ? treeMatch[1] : "";
+        const rest = trimmed.slice(treePrefix.length);
+
+        if (isRoot) {
+          return (
+            <div key={i} style={{ color: "#EAEAEA", fontWeight: 600, marginBottom: "2px" }}>
+              {trimmed}
+            </div>
+          );
+        }
+
+        return (
+          <div key={i} style={{ display: "flex", alignItems: "baseline" }}>
+            <span style={{ color: "#333", whiteSpace: "pre" }}>{treePrefix}</span>
+            <span style={{ color: isFolder ? "#60A5FA" : "#CCCCCC", fontWeight: isFolder ? 500 : 400 }}>
+              {rest}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// References Viewer
+// ─────────────────────────────────────────────
+function ReferencesViewer({ references }: { references: Reference[] }) {
+  const categoryColors: Record<string, string> = {
+    docs:    "#60A5FA",
+    guide:   "#34D399",
+    tool:    "#FBBF24",
+    article: "#A78BFA",
+  };
+
+  const categoryOrder = ["docs", "guide", "tool", "article"];
+  const grouped = categoryOrder.reduce<Record<string, Reference[]>>((acc, cat) => {
+    const items = references.filter((r) => r.category === cat);
+    if (items.length > 0) acc[cat] = items;
+    return acc;
+  }, {});
+
+  // Any refs with unknown category
+  const others = references.filter((r) => !categoryOrder.includes(r.category));
+  if (others.length > 0) grouped["other"] = others;
+
+  return (
+    <div style={{ fontFamily: '"Geist", sans-serif' }}>
+      {Object.entries(grouped).map(([cat, items]) => (
+        <div key={cat} style={{ marginBottom: "20px" }}>
+          <div
+            style={{
+              fontSize: "10px",
+              fontFamily: '"Geist Mono", monospace',
+              fontWeight: 600,
+              letterSpacing: "1px",
+              textTransform: "uppercase",
+              color: categoryColors[cat] ?? "#888",
+              marginBottom: "10px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: categoryColors[cat] ?? "#888",
+              }}
+            />
+            {cat}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {items.map((ref, i) => (
+              <a
+                key={i}
+                href={ref.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "3px",
+                  padding: "12px 14px",
+                  background: "#080808",
+                  border: "1px solid #222",
+                  borderRadius: "4px",
+                  textDecoration: "none",
+                  transition: "border-color 0.15s, background 0.15s",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = "#444";
+                  (e.currentTarget as HTMLAnchorElement).style.background = "#0D0D0D";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLAnchorElement).style.borderColor = "#222";
+                  (e.currentTarget as HTMLAnchorElement).style.background = "#080808";
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: "#EAEAEA",
+                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  {ref.title}
+                  <span style={{ fontSize: "10px", color: "#555" }}>↗</span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#888", lineHeight: "1.5" }}>
+                  {ref.description}
+                </div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "#444",
+                    fontFamily: '"Geist Mono", monospace',
+                    marginTop: "2px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {ref.url}
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -148,10 +317,41 @@ export default function ChatPanel({
   const [hasGeneratedConfig, setHasGeneratedConfig] = useState(false);
   const [isModifyMode, setIsModifyMode] = useState(false);
 
-  // Custom token counter state
-  const [tokensUsed, setTokensUsed] = useState(24592);
+  // Real token quota state
+  const [tokenQuota, setTokenQuota] = useState<{
+    tokensUsed: number;
+    tokensLimit: number;
+    tokensRemaining: number;
+    exhausted: boolean;
+    resetAt: number;
+  } | null>(null);
   const [isTokenHovered, setIsTokenHovered] = useState(false);
-  const TOTAL_TOKENS = 500000;
+  const [resetCountdown, setResetCountdown] = useState<string>("");
+
+  useEffect(() => {
+    if (!tokenQuota?.exhausted || !tokenQuota.resetAt) return;
+
+    const update = () => {
+      const diff = tokenQuota.resetAt - Date.now();
+      if (diff <= 0) {
+        setResetCountdown("now");
+        fetch("/api/token-quota")
+          .then(r => r.json())
+          .then(setTokenQuota);
+        return;
+      }
+      const h = Math.floor(diff / 3_600_000);
+      const m = Math.floor((diff % 3_600_000) / 60_000);
+      const s = Math.floor((diff % 60_000) / 1_000);
+      setResetCountdown(
+        h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`
+      );
+    };
+
+    update();
+    const timer = setInterval(update, 1000);
+    return () => clearInterval(timer);
+  }, [tokenQuota?.exhausted, tokenQuota?.resetAt]);
 
   // Per-message pipeline active node
   const [activePipelineNodes, setActivePipelineNodes] = useState<
@@ -173,6 +373,16 @@ export default function ChatPanel({
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  // Fetch token quota on mount and when signed in
+  useEffect(() => {
+    if (!isSignedIn) return;
+    const fetchQuota = async () => {
+      const res = await fetch("/api/token-quota");
+      if (res.ok) setTokenQuota(await res.json());
+    };
+    fetchQuota();
+  }, [isSignedIn]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -220,7 +430,7 @@ export default function ChatPanel({
   const handleEditMessage = (messageId: string, content: string) => {
     const newContent = prompt('Edit message:', content);
     if (newContent && newContent !== content) {
-      setMessages(prev => prev.map(msg => 
+      setMessages(prev => prev.map(msg =>
         msg.id === messageId ? { ...msg, content: newContent } : msg
       ));
     }
@@ -230,11 +440,9 @@ export default function ChatPanel({
   // Load chat history on component mount
   useEffect(() => {
     const loadChatHistory = async () => {
-      // Skip loading chat history if user is not authenticated
       if (!isSignedIn) {
         return;
       }
-      // Clear current messages when loading a new session
       setMessages([]);
       setGeneratedData(null);
       setHasGeneratedConfig(false);
@@ -264,7 +472,6 @@ export default function ChatPanel({
           (msg: any) => {
             let content = msg.content;
 
-            // For assistant messages, check if they contain complete result data
             if (msg.role === "assistant") {
               try {
                 const parsed = JSON.parse(msg.content);
@@ -274,14 +481,12 @@ export default function ChatPanel({
                   parsed.pipeline ||
                   parsed.markdown
                 ) {
-                  // This is a complete generation result - store it for later
                   foundCompleteResult = true;
                   completeResultData = parsed;
                   content =
                     "Configuration generated successfully. You can view the generated files below.";
                 }
               } catch (e) {
-                // If it's not JSON, keep the original content
                 content = msg.content;
               }
             }
@@ -299,17 +504,11 @@ export default function ChatPanel({
 
         setMessages(historyMessages);
 
-        // If we found complete result data, set it now (after messages are set)
         if (foundCompleteResult && completeResultData) {
           setGeneratedData(completeResultData);
           setHasGeneratedConfig(true);
-          return; // We're done - no API calls needed
+          return;
         }
-
-        // If no complete result found in messages, try to load from artifacts
-        console.log(
-          "No complete result found in messages, checking artifacts...",
-        );
       } catch (error) {
         console.error("Failed to load chat history:", error);
       }
@@ -322,18 +521,9 @@ export default function ChatPanel({
     const lower = text.toLowerCase();
     if (isModifyMode) return "config";
 
-    // For initial generation (not modify mode), prioritize config step
-    // DB step should only be triggered explicitly after config is generated
     if (hasGeneratedConfig) {
-      if (
-        lower.includes("db schema") ||
-        lower.includes("database schema") ||
-        lower.includes("view db") ||
-        lower.includes("show db") ||
-        lower.includes("show schema")
-      )
-        return "db";
-      if (lower.includes("docker") || lower.includes("continue"))
+      // Check in order of expected flow: docker -> pipeline -> docs -> folder -> db -> references
+      if (lower.includes("docker"))
         return "docker";
       if (lower.includes("pipeline") || lower.includes("show pipeline"))
         return "pipeline";
@@ -344,6 +534,33 @@ export default function ChatPanel({
         lower.includes("generate docs")
       )
         return "docs";
+      if (
+        lower.includes("folder") ||
+        lower.includes("file structure") ||
+        lower.includes("project structure") ||
+        lower.includes("directory") ||
+        lower.includes("show folder")
+      )
+        return "folder";
+      if (
+        lower.includes("db schema") ||
+        lower.includes("database schema") ||
+        lower.includes("view db") ||
+        lower.includes("show db") ||
+        lower.includes("show schema")
+      )
+        return "db";
+      if (
+        lower.includes("reference") ||
+        lower.includes("resources") ||
+        lower.includes("links") ||
+        lower.includes("show references") ||
+        lower.includes("documentation links")
+      )
+        return "references";
+      // Keep "continue" as fallback for next step in flow
+      if (lower.includes("continue"))
+        return "docker";
     }
 
     return "config";
@@ -399,8 +616,37 @@ export default function ChatPanel({
           language: "markdown",
           content: data.markdown,
         },
+        options: ["Show Folder Structure", "View DB Schema", "Show References"],
+      };
+    if (step === "folder")
+      return {
+        content: "Project folder structure generated.",
+        file: {
+          name: "project-structure.txt",
+          language: "folder",
+          content: data.folderStructure ?? "Folder structure not available.",
+        },
+        options: ["Show References", "View DB Schema"],
+      };
+    if (step === "references") {
+      const refs: Reference[] = data.references ?? [];
+      if (!refs.length)
+        return {
+          content: "No references available for this stack.",
+          file: undefined,
+          options: ["View DB Schema"],
+        };
+      return {
+        content: `${refs.length} reference${refs.length !== 1 ? "s" : ""} curated for your stack.`,
+        file: {
+          name: "references",
+          language: "references",
+          content: "",
+          references: refs,
+        },
         options: ["View DB Schema"],
       };
+    }
     if (!data.dbSchema)
       return {
         content:
@@ -424,10 +670,25 @@ export default function ChatPanel({
   };
 
   const handleSend = async (overrideInput?: string) => {
-    // Check if user is authenticated
     if (!isSignedIn) {
-      // Show login modal instead of redirecting
       onShowLoginModal?.(true);
+      return;
+    }
+
+    if (tokenQuota?.exhausted) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `DAILY TOKEN LIMIT REACHED\n\n` +
+          `You've consumed all 10,000 tokens for today.\n` +
+          `Quota resets in: ${resetCountdown || "< 24h"}\n\n` +
+          `To continue generating:\n` +
+          `— Wait for your daily quota to reset\n` +
+          `— Or upgrade your plan for higher limits`,
+        timestamp: new Date().toLocaleTimeString([], {
+          hour: "2-digit", minute: "2-digit",
+        }),
+      }]);
       return;
     }
 
@@ -449,9 +710,6 @@ export default function ChatPanel({
     if (textareaRef.current && !overrideInput)
       textareaRef.current.style.height = "24px";
 
-    // Simulate token increment on message send
-    setTokensUsed((prev) => prev + Math.floor(Math.random() * 50) + 10);
-
     try {
       let data = generatedData;
       const needsFreshData = !data || isModifyMode || step === "config";
@@ -471,8 +729,24 @@ export default function ChatPanel({
           data = await res.json();
           if (data.error) throw new Error(data.error);
 
-          // Add tokens from backend if available, otherwise simulate usage
-          if (data.tokens) setTokensUsed((prev) => prev + data.tokens);
+          // Refresh token quota after successful generation
+          const quotaRes = await fetch("/api/token-quota");
+          if (quotaRes.ok) {
+            const fresh = await quotaRes.json();
+            setTokenQuota(fresh);
+
+            const pct = fresh.tokensUsed / fresh.tokensLimit;
+            if (pct >= 0.8 && pct < 1.0 && !fresh.exhausted) {
+              setMessages(prev => [...prev, {
+                id: `warn-${Date.now()}`,
+                role: "assistant",
+                content: `⚠ TOKEN WARNING: ${fresh.tokensRemaining.toLocaleString()} tokens remaining today (${Math.round(pct * 100)}% used).\nApprox. ${Math.floor(fresh.tokensRemaining / 3300)} generation(s) left.`,
+                timestamp: new Date().toLocaleTimeString([], {
+                  hour: "2-digit", minute: "2-digit",
+                }),
+              }]);
+            }
+          }
         } catch (error) {
           console.error("Failed to send message:", error);
           setIsTyping(false);
@@ -546,37 +820,12 @@ export default function ChatPanel({
   // ─────────────────────────────────────────────
   const renderCode = (content: string) => {
     const keywords = [
-      "import",
-      "from",
-      "const",
-      "let",
-      "var",
-      "export",
-      "default",
-      "function",
-      "return",
-      "type",
-      "interface",
-      "if",
-      "else",
-      "for",
-      "while",
-      "def",
-      "class",
-      "async",
-      "await",
-      "true",
-      "false",
+      "import", "from", "const", "let", "var", "export", "default", "function",
+      "return", "type", "interface", "if", "else", "for", "while", "def", "class",
+      "async", "await", "true", "false",
     ];
     const types = [
-      "string",
-      "number",
-      "boolean",
-      "any",
-      "void",
-      "React",
-      "useState",
-      "useEffect",
+      "string", "number", "boolean", "any", "void", "React", "useState", "useEffect",
     ];
     return (content ?? "").split("\n").map((line, i) => {
       const trimmedLine = line.trim();
@@ -584,9 +833,7 @@ export default function ChatPanel({
         return (
           <div key={i}>
             <span style={{ whiteSpace: "pre" }}>{line.match(/^\s*/)?.[0]}</span>
-            <span style={{ color: "#888888", fontStyle: "italic" }}>
-              {trimmedLine}
-            </span>
+            <span style={{ color: "#888888", fontStyle: "italic" }}>{trimmedLine}</span>
           </div>
         );
       const tokens = line.split(/(\s+|[:{}()[\],;."']|(?<=")|(?='))/);
@@ -596,77 +843,22 @@ export default function ChatPanel({
             if (!token) return null;
             const trimmed = token.trim();
             if (keywords.includes(trimmed))
-              return (
-                <span key={j} style={{ color: "#F472B6", fontWeight: 500 }}>
-                  {token}
-                </span>
-              );
+              return <span key={j} style={{ color: "#F472B6", fontWeight: 500 }}>{token}</span>;
             if (types.includes(trimmed))
-              return (
-                <span key={j} style={{ color: "#60A5FA" }}>
-                  {token}
-                </span>
-              );
+              return <span key={j} style={{ color: "#60A5FA" }}>{token}</span>;
             if (!isNaN(Number(trimmed)) && trimmed !== "")
-              return (
-                <span key={j} style={{ color: "#FBBF24" }}>
-                  {token}
-                </span>
-              );
-            if (
-              token.startsWith('"') ||
-              token.startsWith("'") ||
-              token.endsWith('"') ||
-              token.endsWith("'")
-            )
-              return (
-                <span key={j} style={{ color: "#34D399" }}>
-                  {token}
-                </span>
-              );
+              return <span key={j} style={{ color: "#FBBF24" }}>{token}</span>;
+            if (token.startsWith('"') || token.startsWith("'") || token.endsWith('"') || token.endsWith("'"))
+              return <span key={j} style={{ color: "#34D399" }}>{token}</span>;
             const nextToken = tokens[j + 1]?.trim() ?? "";
-            const nextActualToken =
-              tokens.slice(j + 1).find((t) => t.trim() !== "") ?? "";
+            const nextActualToken = tokens.slice(j + 1).find((t) => t.trim() !== "") ?? "";
             if (/^[a-zA-Z_]\w*$/.test(trimmed) && nextToken === "(")
-              return (
-                <span key={j} style={{ color: "#A78BFA", fontWeight: 500 }}>
-                  {token}
-                </span>
-              );
+              return <span key={j} style={{ color: "#A78BFA", fontWeight: 500 }}>{token}</span>;
             if (/^[a-zA-Z_]\w*$/.test(trimmed) && nextActualToken === ":")
-              return (
-                <span key={j} style={{ color: "#38BDF8" }}>
-                  {token}
-                </span>
-              );
-            if (
-              [
-                ":",
-                "{",
-                "}",
-                "(",
-                ")",
-                "[",
-                "]",
-                "=",
-                "+",
-                "-",
-                "*",
-                "/",
-                ";",
-                ",",
-              ].includes(trimmed)
-            )
-              return (
-                <span key={j} style={{ color: "#888" }}>
-                  {token}
-                </span>
-              );
-            return (
-              <span key={j} style={{ color: "#CCCCCC" }}>
-                {token}
-              </span>
-            );
+              return <span key={j} style={{ color: "#38BDF8" }}>{token}</span>;
+            if ([":", "{", "}", "(", ")", "[", "]", "=", "+", "-", "*", "/", ";", ","].includes(trimmed))
+              return <span key={j} style={{ color: "#888" }}>{token}</span>;
+            return <span key={j} style={{ color: "#CCCCCC" }}>{token}</span>;
           })}
         </div>
       );
@@ -681,177 +873,60 @@ export default function ChatPanel({
       const tLine = line.trim();
       if (tLine.startsWith("# "))
         return (
-          <div
-            key={i}
-            style={{
-              color: "#FFFFFF",
-              fontSize: "17px",
-              fontWeight: 500,
-              marginTop: "24px",
-              marginBottom: "12px",
-              paddingBottom: "10px",
-              borderBottom: "1px solid #333",
-              fontFamily: '"Geist Mono", monospace',
-              letterSpacing: "-0.5px",
-            }}
-          >
+          <div key={i} style={{ color: "#FFFFFF", fontSize: "17px", fontWeight: 500, marginTop: "24px", marginBottom: "12px", paddingBottom: "10px", borderBottom: "1px solid #333", fontFamily: '"Geist Mono", monospace', letterSpacing: "-0.5px" }}>
             {tLine.substring(2)}
           </div>
         );
       if (tLine.startsWith("## "))
         return (
-          <div
-            key={i}
-            style={{
-              color: "#EAEAEA",
-              fontSize: "13px",
-              fontWeight: 500,
-              marginTop: "18px",
-              marginBottom: "8px",
-              fontFamily: '"Geist Mono", monospace',
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-            }}
-          >
+          <div key={i} style={{ color: "#EAEAEA", fontSize: "13px", fontWeight: 500, marginTop: "18px", marginBottom: "8px", fontFamily: '"Geist Mono", monospace', display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ color: "#888" }}>##</span>
             {tLine.substring(3)}
           </div>
         );
       if (tLine.startsWith("### "))
         return (
-          <div
-            key={i}
-            style={{
-              color: "#A0A0A0",
-              fontSize: "10px",
-              fontWeight: 500,
-              marginTop: "14px",
-              marginBottom: "6px",
-              textTransform: "uppercase",
-              letterSpacing: "0.8px",
-              fontFamily: '"Geist Mono", monospace',
-            }}
-          >
+          <div key={i} style={{ color: "#A0A0A0", fontSize: "10px", fontWeight: 500, marginTop: "14px", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.8px", fontFamily: '"Geist Mono", monospace' }}>
             {tLine.substring(4)}
           </div>
         );
       if (tLine.startsWith("- ")) {
-        const inner = tLine
-          .substring(2)
-          .replace(/\*\*(.+?)\*\*/g, "<BOLD>$1</BOLD>")
-          .replace(/`(.+?)`/g, "<CODE>$1</CODE>");
+        const inner = tLine.substring(2).replace(/\*\*(.+?)\*\*/g, "<BOLD>$1</BOLD>").replace(/`(.+?)`/g, "<CODE>$1</CODE>");
         return (
-          <div
-            key={i}
-            style={{
-              color: "#CCCCCC",
-              marginLeft: "12px",
-              marginBottom: "6px",
-              display: "flex",
-              alignItems: "flex-start",
-              gap: "10px",
-              lineHeight: "1.6",
-              fontSize: "13px",
-            }}
-          >
-            <span style={{ color: "#888", flexShrink: 0, marginTop: "1px" }}>
-              —
-            </span>
-            <span
-              dangerouslySetInnerHTML={{
-                __html: inner
-                  .replace(
-                    /<BOLD>(.+?)<\/BOLD>/g,
-                    '<span style="color:#FFFFFF;font-weight:600;">$1</span>',
-                  )
-                  .replace(
-                    /<CODE>(.+?)<\/CODE>/g,
-                    '<code style="font-size:11px;background:#111;padding:2px 6px;border-radius:4px;color:#A78BFA;border:1px solid #333;font-family:Geist Mono,monospace;">$1</code>',
-                  ),
-              }}
-            />
+          <div key={i} style={{ color: "#CCCCCC", marginLeft: "12px", marginBottom: "6px", display: "flex", alignItems: "flex-start", gap: "10px", lineHeight: "1.6", fontSize: "13px" }}>
+            <span style={{ color: "#888", flexShrink: 0, marginTop: "1px" }}>—</span>
+            <span dangerouslySetInnerHTML={{ __html: inner.replace(/<BOLD>(.+?)<\/BOLD>/g, '<span style="color:#FFFFFF;font-weight:600;">$1</span>').replace(/<CODE>(.+?)<\/CODE>/g, '<code style="font-size:11px;background:#111;padding:2px 6px;border-radius:4px;color:#A78BFA;border:1px solid #333;font-family:Geist Mono,monospace;">$1</code>') }} />
           </div>
         );
       }
       if (/^\d+\./.test(tLine)) {
         const dotIdx = tLine.indexOf(".");
         return (
-          <div
-            key={i}
-            style={{
-              color: "#CCCCCC",
-              marginLeft: "12px",
-              marginBottom: "6px",
-              display: "flex",
-              gap: "10px",
-              lineHeight: "1.6",
-              fontSize: "13px",
-            }}
-          >
-            <span
-              style={{
-                color: "#A0A0A0",
-                fontFamily: '"Geist Mono", monospace',
-                flexShrink: 0,
-                fontWeight: 500,
-              }}
-            >
-              {tLine.substring(0, dotIdx)}.
-            </span>
+          <div key={i} style={{ color: "#CCCCCC", marginLeft: "12px", marginBottom: "6px", display: "flex", gap: "10px", lineHeight: "1.6", fontSize: "13px" }}>
+            <span style={{ color: "#A0A0A0", fontFamily: '"Geist Mono", monospace', flexShrink: 0, fontWeight: 500 }}>{tLine.substring(0, dotIdx)}.</span>
             <span>{tLine.substring(dotIdx + 1).trim()}</span>
           </div>
         );
       }
-      if (tLine.startsWith("```"))
-        return <div key={i} style={{ height: "4px" }} />;
+      if (tLine.startsWith("```")) return <div key={i} style={{ height: "4px" }} />;
       if (tLine.includes("`")) {
         const parts = tLine.split(/(`[^`]+`)/g);
         return (
-          <div
-            key={i}
-            style={{
-              color: "#CCCCCC",
-              marginBottom: "6px",
-              lineHeight: "1.65",
-              minHeight: "19px",
-              fontSize: "13px",
-            }}
-          >
+          <div key={i} style={{ color: "#CCCCCC", marginBottom: "6px", lineHeight: "1.65", minHeight: "19px", fontSize: "13px" }}>
             {parts.map((part, j) =>
               part.startsWith("`") && part.endsWith("`") ? (
-                <code
-                  key={j}
-                  style={{
-                    fontSize: "11px",
-                    background: "#111",
-                    padding: "2px 6px",
-                    borderRadius: "4px",
-                    color: "#A78BFA",
-                    border: "1px solid #333",
-                    fontFamily: '"Geist Mono", monospace',
-                  }}
-                >
+                <code key={j} style={{ fontSize: "11px", background: "#111", padding: "2px 6px", borderRadius: "4px", color: "#A78BFA", border: "1px solid #333", fontFamily: '"Geist Mono", monospace' }}>
                   {part.slice(1, -1)}
                 </code>
               ) : (
                 <span key={j}>{part}</span>
-              ),
+              )
             )}
           </div>
         );
       }
       return (
-        <div
-          key={i}
-          style={{
-            color: "#CCCCCC",
-            marginBottom: "6px",
-            lineHeight: "1.65",
-            minHeight: "19px",
-            fontSize: "13px",
-          }}
-        >
+        <div key={i} style={{ color: "#CCCCCC", marginBottom: "6px", lineHeight: "1.65", minHeight: "19px", fontSize: "13px" }}>
           {line}
         </div>
       );
@@ -877,21 +952,13 @@ export default function ChatPanel({
           <img
             src={content}
             alt={msg.file.name}
-            style={{
-              maxWidth: "100%",
-              maxHeight: "400px",
-              objectFit: "contain",
-              border: "1px solid #333",
-              borderRadius: "4px",
-            }}
+            style={{ maxWidth: "100%", maxHeight: "400px", objectFit: "contain", border: "1px solid #333", borderRadius: "4px" }}
           />
         </div>
       );
     if (language === "pipeline")
       return (
-        <div
-          style={{ minHeight: "400px", width: "100%", position: "relative" }}
-        >
+        <div style={{ minHeight: "400px", width: "100%", position: "relative" }}>
           <PipelineViewer
             content={content}
             msgId={msg.id}
@@ -902,18 +969,13 @@ export default function ChatPanel({
           />
         </div>
       );
+    if (language === "folder")
+      return <FolderStructureViewer content={content} />;
+    if (language === "references")
+      return <ReferencesViewer references={msg.file.references ?? []} />;
     if (language === "markdown")
       return markdownMode[msg.id] === "code" ? (
-        <pre
-          style={{
-            margin: 0,
-            fontSize: "12px",
-            fontFamily: '"Geist Mono", monospace',
-            lineHeight: "1.65",
-            whiteSpace: "pre",
-            color: "#CCCCCC",
-          }}
-        >
+        <pre style={{ margin: 0, fontSize: "12px", fontFamily: '"Geist Mono", monospace', lineHeight: "1.65", whiteSpace: "pre", color: "#CCCCCC" }}>
           {renderCode(content)}
         </pre>
       ) : (
@@ -922,16 +984,7 @@ export default function ChatPanel({
         </div>
       );
     return (
-      <pre
-        style={{
-          margin: 0,
-          fontSize: "12px",
-          fontFamily: '"Geist Mono", monospace',
-          lineHeight: "1.65",
-          whiteSpace: "pre",
-          background: "#000",
-        }}
-      >
+      <pre style={{ margin: 0, fontSize: "12px", fontFamily: '"Geist Mono", monospace', lineHeight: "1.65", whiteSpace: "pre", background: "#000" }}>
         {renderCode(content)}
       </pre>
     );
@@ -944,6 +997,7 @@ export default function ChatPanel({
     if (!msg.file) return null;
     const { language, name, content } = msg.file;
     const isMarkdown = language === "markdown";
+    const isCopyable = ["yaml", "markdown", "folder"].includes(language);
     const currentMode = markdownMode[msg.id] ?? "preview";
     return (
       <div
@@ -958,22 +1012,8 @@ export default function ChatPanel({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div
-            style={{
-              width: "6px",
-              height: "6px",
-              background: "#666",
-              borderRadius: "50%",
-            }}
-          />
-          <span
-            style={{
-              fontSize: "12px",
-              color: "#EAEAEA",
-              fontWeight: 500,
-              fontFamily: '"Geist Mono", monospace',
-            }}
-          >
+          <div style={{ width: "6px", height: "6px", background: "#666", borderRadius: "50%" }} />
+          <span style={{ fontSize: "12px", color: "#EAEAEA", fontWeight: 500, fontFamily: '"Geist Mono", monospace' }}>
             {name}
           </span>
           <LanguageBadge language={language} />
@@ -982,47 +1022,20 @@ export default function ChatPanel({
           {isMarkdown && (
             <>
               <button
-                onClick={() =>
-                  setMarkdownMode((prev) => ({ ...prev, [msg.id]: "code" }))
-                }
-                style={{
-                  fontSize: "10px",
-                  color: currentMode === "code" ? "#EAEAEA" : "#A0A0A0",
-                  background: currentMode === "code" ? "#222" : "transparent",
-                  border: `1px solid ${currentMode === "code" ? "#555" : "#333"}`,
-                  padding: "4px 10px",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  fontFamily: '"Geist Mono", monospace',
-                  transition: "all 0.15s",
-                }}
+                onClick={() => setMarkdownMode((prev) => ({ ...prev, [msg.id]: "code" }))}
+                style={{ fontSize: "10px", color: currentMode === "code" ? "#EAEAEA" : "#A0A0A0", background: currentMode === "code" ? "#222" : "transparent", border: `1px solid ${currentMode === "code" ? "#555" : "#333"}`, padding: "4px 10px", borderRadius: "4px", cursor: "pointer", fontFamily: '"Geist Mono", monospace', transition: "all 0.15s" }}
               >
                 CODE
               </button>
               <button
-                onClick={() =>
-                  setMarkdownMode((prev) => ({ ...prev, [msg.id]: "preview" }))
-                }
-                style={{
-                  fontSize: "10px",
-                  color: currentMode === "preview" ? "#EAEAEA" : "#A0A0A0",
-                  background:
-                    currentMode === "preview" ? "#222" : "transparent",
-                  border: `1px solid ${currentMode === "preview" ? "#555" : "#333"}`,
-                  padding: "4px 10px",
-                  borderRadius: "4px",
-                  cursor: "pointer",
-                  fontFamily: '"Geist Mono", monospace',
-                  transition: "all 0.15s",
-                }}
+                onClick={() => setMarkdownMode((prev) => ({ ...prev, [msg.id]: "preview" }))}
+                style={{ fontSize: "10px", color: currentMode === "preview" ? "#EAEAEA" : "#A0A0A0", background: currentMode === "preview" ? "#222" : "transparent", border: `1px solid ${currentMode === "preview" ? "#555" : "#333"}`, padding: "4px 10px", borderRadius: "4px", cursor: "pointer", fontFamily: '"Geist Mono", monospace', transition: "all 0.15s" }}
               >
                 PREVIEW
               </button>
             </>
           )}
-          {["yaml", "markdown"].includes(language) && (
-            <CopyButton content={content} />
-          )}
+          {isCopyable && <CopyButton content={content} />}
         </div>
       </div>
     );
@@ -1030,7 +1043,7 @@ export default function ChatPanel({
 
   // ─────────────────────────────────────────────
   // Input Area
-  // ------------------------------------------------------------------
+  // ─────────────────────────────────────────────
   const renderInputArea = () => {
     return (
       <div
@@ -1045,21 +1058,10 @@ export default function ChatPanel({
           transition: "border-color 0.2s, box-shadow 0.2s",
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.4)",
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "#555";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "#333";
-        }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#555"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#333"; }}
       >
-        <div
-          style={{
-            color: "#888",
-            fontFamily: '"Geist Mono", monospace',
-            fontSize: "14px",
-            userSelect: "none",
-          }}
-        >
+        <div style={{ color: "#888", fontFamily: '"Geist Mono", monospace', fontSize: "14px", userSelect: "none" }}>
           &gt;
         </div>
         <textarea
@@ -1089,41 +1091,21 @@ export default function ChatPanel({
         />
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <button
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#A0A0A0",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "4px 8px",
-              borderRadius: "6px",
-              transition: "all 0.15s ease",
-              fontSize: "16px",
-              fontFamily: '"Geist Mono", monospace',
-              fontWeight: 500,
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#EAEAEA";
-              (e.currentTarget as HTMLButtonElement).style.background = "#222";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#A0A0A0";
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "transparent";
-            }}
+            style={{ background: "transparent", border: "none", color: "#A0A0A0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 8px", borderRadius: "6px", transition: "all 0.15s ease", fontSize: "16px", fontFamily: '"Geist Mono", monospace', fontWeight: 500 }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#EAEAEA"; (e.currentTarget as HTMLButtonElement).style.background = "#222"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#A0A0A0"; (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
             title="Attach File"
           >
             +
           </button>
           <button
             onClick={() => handleSend()}
+            disabled={tokenQuota?.exhausted}
             style={{
-              background: input.trim() ? "#EAEAEA" : "transparent",
-              border: input.trim() ? "1px solid #EAEAEA" : "1px solid #444",
-              color: input.trim() ? "#000000" : "#888",
-              cursor: input.trim() ? "pointer" : "default",
+              background: (input.trim() && !tokenQuota?.exhausted) ? "#EAEAEA" : "transparent",
+              border: `1px solid ${tokenQuota?.exhausted ? "#ff6b6b40" : input.trim() ? "#EAEAEA" : "#444"}`,
+              color: tokenQuota?.exhausted ? "#ff6b6b" : input.trim() ? "#000000" : "#888",
+              cursor: (input.trim() && !tokenQuota?.exhausted) ? "pointer" : "default",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1136,7 +1118,7 @@ export default function ChatPanel({
               borderRadius: "6px",
             }}
           >
-            Exec
+            {tokenQuota?.exhausted ? "BURNED" : "Exec"}
           </button>
         </div>
       </div>
@@ -1186,40 +1168,13 @@ export default function ChatPanel({
               borderRadius: "6px",
               transition: "all 0.2s ease",
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "#EAEAEA";
-              e.currentTarget.style.borderColor = "#555";
-              (e.currentTarget as HTMLButtonElement).style.background = "#111";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "#A0A0A0";
-              e.currentTarget.style.borderColor = "#333";
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "transparent";
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = "#EAEAEA"; e.currentTarget.style.borderColor = "#555"; (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = "#A0A0A0"; e.currentTarget.style.borderColor = "#333"; (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
           >
-            <span
-              style={{
-                fontSize: "10px",
-                fontWeight: 600,
-                fontFamily: '"Geist Mono", monospace',
-                letterSpacing: "0.5px",
-              }}
-            >
-              MENU
-            </span>
+            <span style={{ fontSize: "10px", fontWeight: 600, fontFamily: '"Geist Mono", monospace', letterSpacing: "0.5px" }}>MENU</span>
           </button>
-          <div
-            style={{
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "#EAEAEA",
-              letterSpacing: "1px",
-              fontFamily: '"Geist Mono", monospace',
-            }}
-          >
-            EDGE-OS{" "}
-            <span style={{ color: "#666", fontWeight: 400 }}>// WKSP</span>
+          <div style={{ fontSize: "13px", fontWeight: 600, color: "#EAEAEA", letterSpacing: "1px", fontFamily: '"Geist Mono", monospace' }}>
+            EDGE-OS{" "}<span style={{ color: "#666", fontWeight: 400 }}>// WKSP</span>
           </div>
         </div>
 
@@ -1227,238 +1182,92 @@ export default function ChatPanel({
         {isSignedIn && (
           <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
             {/* Token Widget */}
-            <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "6px 12px",
-              background: "#111",
-              border: "1px solid #333",
-              borderRadius: "6px",
-              fontFamily: '"Geist Mono", monospace',
-              fontSize: "11px",
-              color: "#A0A0A0",
-              cursor: "default",
-              transition: "all 0.2s ease",
-              minWidth: "120px",
-              justifyContent: "center",
-            }}
-            title="Tokens utilized this session"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#555";
-              e.currentTarget.style.color = "#EAEAEA";
-              setIsTokenHovered(true);
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#333";
-              e.currentTarget.style.color = "#A0A0A0";
-              setIsTokenHovered(false);
-            }}
-          >
-            <span>
-              {isTokenHovered
-                ? `${tokensUsed.toLocaleString()} / ${TOTAL_TOKENS.toLocaleString()}`
-                : `${tokensUsed.toLocaleString()} TOKENS`}
-            </span>
-          </div>
+            {tokenQuota && (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                  padding: "6px 12px",
+                  background: tokenQuota.exhausted ? "rgba(255,107,107,0.08)" : "#111",
+                  border: `1px solid ${tokenQuota.exhausted ? "#ff6b6b40" : "#222"}`,
+                  borderRadius: "6px",
+                  fontFamily: '"Geist Mono", monospace',
+                  minWidth: "160px",
+                  cursor: "default",
+                  transition: "all 0.2s",
+                }}
+                title={tokenQuota.exhausted ? `Resets at ${new Date(tokenQuota.resetAt).toLocaleTimeString()}` : `${tokenQuota.tokensRemaining.toLocaleString()} remaining`}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: tokenQuota.exhausted ? "#ff6b6b" : "#666", letterSpacing: "0.5px" }}>
+                  <span>{tokenQuota.exhausted ? "BURNED" : "TOKENS"}</span>
+                  <span style={{ color: tokenQuota.exhausted ? "#ff6b6b" : "#A0A0A0" }}>
+                    {tokenQuota.tokensUsed.toLocaleString()} / {tokenQuota.tokensLimit.toLocaleString()}
+                  </span>
+                </div>
+                <div style={{ width: "100%", height: "2px", background: "#1A1A1A", borderRadius: "2px", overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${Math.min((tokenQuota.tokensUsed / tokenQuota.tokensLimit) * 100, 100)}%`,
+                    background: tokenQuota.exhausted ? "#ff6b6b" : tokenQuota.tokensUsed / tokenQuota.tokensLimit > 0.8 ? "#FBBF24" : "#34D399",
+                    borderRadius: "2px",
+                    transition: "width 0.4s ease, background 0.3s ease",
+                  }} />
+                </div>
+              </div>
+            )}
 
-          {/* Settings Button */}
-          <button
-            onClick={() => router.push("/settings")}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "6px 12px",
-              background: "transparent",
-              border: "1px solid #333",
-              borderRadius: "6px",
-              color: "#A0A0A0",
-              cursor: "pointer",
-              transition: "all 0.2s ease",
-            }}
-            title="Settings"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#555";
-              e.currentTarget.style.color = "#EAEAEA";
-              e.currentTarget.style.background = "#111";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "#333";
-              e.currentTarget.style.color = "#A0A0A0";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <span
-              style={{
-                fontSize: "10px",
-                fontWeight: 600,
-                fontFamily: '"Geist Mono", monospace',
-                letterSpacing: "0.5px",
-              }}
+            {/* Settings Button */}
+            <button
+              onClick={() => router.push("/settings")}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 12px", background: "transparent", border: "1px solid #333", borderRadius: "6px", color: "#A0A0A0", cursor: "pointer", transition: "all 0.2s ease" }}
+              title="Settings"
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#555"; e.currentTarget.style.color = "#EAEAEA"; e.currentTarget.style.background = "#111"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#333"; e.currentTarget.style.color = "#A0A0A0"; e.currentTarget.style.background = "transparent"; }}
             >
-              SETTINGS
-            </span>
-          </button>
-        </div>
+              <span style={{ fontSize: "10px", fontWeight: 600, fontFamily: '"Geist Mono", monospace', letterSpacing: "0.5px" }}>SETTINGS</span>
+            </button>
+          </div>
         )}
       </div>
 
       {/* Main content */}
-      <div
-        style={{
-          flex: 1,
-          position: "relative",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-        }}
-      >
+      <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ flex: 1, overflowY: "auto", paddingBottom: "120px" }}>
           {messages.length === 0 ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                padding: "40px 20px",
-                maxWidth: "900px",
-                margin: "0 auto",
-                width: "100%",
-              }}
-            >
+            <div style={{ display: "flex", flexDirection: "column", padding: "40px 20px", maxWidth: "900px", margin: "0 auto", width: "100%" }}>
               <div style={{ marginBottom: "64px" }}>
-                <div
-                  style={{
-                    color: "#888",
-                    fontSize: "11px",
-                    marginBottom: "16px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    fontFamily: '"Geist Mono", monospace',
-                    textTransform: "uppercase",
-                    letterSpacing: "1px",
-                  }}
-                >
+                <div style={{ color: "#888", fontSize: "11px", marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px", fontFamily: '"Geist Mono", monospace', textTransform: "uppercase", letterSpacing: "1px" }}>
                   Status: <span style={{ color: "#EAEAEA" }}>ONLINE</span>
                 </div>
-                <h1
-                  style={{
-                    fontSize: "32px",
-                    fontWeight: 500,
-                    color: "#FFFFFF",
-                    letterSpacing: "-1px",
-                    margin: 0,
-                    fontFamily: '"Geist", sans-serif',
-                  }}
-                >
+                <h1 style={{ fontSize: "32px", fontWeight: 500, color: "#FFFFFF", letterSpacing: "-1px", margin: 0, fontFamily: '"Geist", sans-serif' }}>
                   System Initialized.
                 </h1>
-                <div
-                  style={{
-                    color: "#A0A0A0",
-                    fontSize: "14px",
-                    marginTop: "16px",
-                    maxWidth: "600px",
-                    lineHeight: "1.6",
-                    fontFamily: '"Geist", sans-serif',
-                  }}
-                >
-                  Development environment active. Awaiting input for
-                  architecture synthesis, infrastructure deployment, or codebase
-                  manipulation.
+                <div style={{ color: "#A0A0A0", fontSize: "14px", marginTop: "16px", maxWidth: "600px", lineHeight: "1.6", fontFamily: '"Geist", sans-serif' }}>
+                  Development environment active. Awaiting input for architecture synthesis, infrastructure deployment, or codebase manipulation.
                 </div>
               </div>
-              <div
-                style={{
-                  fontSize: "11px",
-                  color: "#888",
-                  fontWeight: 600,
-                  letterSpacing: "1px",
-                  marginBottom: "16px",
-                  textTransform: "uppercase",
-                  fontFamily: '"Geist Mono", monospace',
-                }}
-              >
+              <div style={{ fontSize: "11px", color: "#888", fontWeight: 600, letterSpacing: "1px", marginBottom: "16px", textTransform: "uppercase", fontFamily: '"Geist Mono", monospace' }}>
                 AVAILABLE MACROS
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                  gap: "1px",
-                  background: "#333",
-                  border: "1px solid #333",
-                  borderRadius: "8px",
-                  overflow: "hidden",
-                }}
-              >
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1px", background: "#333", border: "1px solid #333", borderRadius: "8px", overflow: "hidden" }}>
                 {[
-                  {
-                    title: "Initialize Complete SaaS",
-                    desc: "Scaffold agents, backend, frontend, CI/CD, and deployment infrastructure.",
-                    text: "Create a complete AI SaaS including agents, backend, frontend, CI/CD, and deployment",
-                  },
-                  {
-                    title: "Build RAG Pipeline",
-                    desc: "Design an AI system with RAG, embeddings, and a scalable vector database.",
-                    text: "Design an AI system with RAG pipeline, embeddings, and vector database",
-                  },
-                  {
-                    title: "Enterprise Architecture",
-                    desc: "Generate a production-ready AI architecture focused on security and scale.",
-                    text: "Generate an enterprise-grade AI architecture with security and scaling",
-                  },
+                  { title: "Initialize Complete SaaS", desc: "Scaffold agents, backend, frontend, CI/CD, and deployment infrastructure.", text: "Create a complete AI SaaS including agents, backend, frontend, CI/CD, and deployment" },
+                  { title: "Build RAG Pipeline", desc: "Design an AI system with RAG, embeddings, and a scalable vector database.", text: "Design an AI system with RAG pipeline, embeddings, and vector database" },
+                  { title: "Enterprise Architecture", desc: "Generate a production-ready AI architecture focused on security and scale.", text: "Generate an enterprise-grade AI architecture with security and scaling" },
                 ].map((prompt, i) => (
                   <button
                     key={i}
                     onClick={() => handleSend(prompt.text)}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "flex-start",
-                      padding: "24px 20px",
-                      background: "#080808",
-                      border: "none",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      transition: "background 0.2s ease",
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.background =
-                        "#111";
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLButtonElement).style.background =
-                        "#080808";
-                    }}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", padding: "24px 20px", background: "#080808", border: "none", cursor: "pointer", textAlign: "left", transition: "background 0.2s ease" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#111"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#080808"; }}
                   >
-                    <div
-                      style={{
-                        color: "#EAEAEA",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        marginBottom: "8px",
-                        fontFamily: '"Geist Mono", monospace',
-                        display: "flex",
-                        alignItems: "center",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      <span style={{ color: "#666", marginRight: "8px" }}>
-                        &gt;
-                      </span>
+                    <div style={{ color: "#EAEAEA", fontSize: "12px", fontWeight: 600, marginBottom: "8px", fontFamily: '"Geist Mono", monospace', display: "flex", alignItems: "center", textTransform: "uppercase" }}>
+                      <span style={{ color: "#666", marginRight: "8px" }}>&gt;</span>
                       {prompt.title}
                     </div>
-                    <div
-                      style={{
-                        color: "#888",
-                        fontSize: "13px",
-                        lineHeight: "1.6",
-                        fontFamily: '"Geist", sans-serif',
-                      }}
-                    >
+                    <div style={{ color: "#888", fontSize: "13px", lineHeight: "1.6", fontFamily: '"Geist", sans-serif' }}>
                       {prompt.desc}
                     </div>
                   </button>
@@ -1466,112 +1275,34 @@ export default function ChatPanel({
               </div>
             </div>
           ) : (
-            <div
-              style={{
-                maxWidth: "900px",
-                width: "100%",
-                margin: "0 auto",
-                padding: "20px 20px 0",
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
+            <div style={{ maxWidth: "900px", width: "100%", margin: "0 auto", padding: "20px 20px 0", display: "flex", flexDirection: "column" }}>
               {messages.map((msg, idx) => (
                 <div
                   key={msg.id}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-start",
-                    padding: "24px 0",
-                    borderBottom:
-                      idx !== messages.length - 1 ? "1px solid #222" : "none",
-                    width: "100%",
-                  }}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", padding: "24px 0", borderBottom: idx !== messages.length - 1 ? "1px solid #222" : "none", width: "100%" }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setContextMenu({
-                      visible: true,
-                      x: e.clientX,
-                      y: e.clientY,
-                      messageId: msg.id,
-                      messageContent: msg.content,
-                      messageRole: msg.role,
-                    });
+                    setContextMenu({ visible: true, x: e.clientX, y: e.clientY, messageId: msg.id, messageContent: msg.content, messageRole: msg.role });
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: msg.role === "user" ? "#A0A0A0" : "#EAEAEA",
-                      fontFamily: '"Geist Mono", monospace',
-                      marginBottom: "12px",
-                      letterSpacing: "1px",
-                      textTransform: "uppercase",
-                    }}
-                  >
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: msg.role === "user" ? "#A0A0A0" : "#EAEAEA", fontFamily: '"Geist Mono", monospace', marginBottom: "12px", letterSpacing: "1px", textTransform: "uppercase" }}>
                     {msg.role === "user" ? "SAHIL" : "SYSTEM"}
                   </div>
                   {msg.tools && (
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "8px",
-                        marginBottom: "16px",
-                        flexWrap: "wrap",
-                      }}
-                    >
+                    <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
                       {msg.tools.map((tool) => (
-                        <span
-                          key={tool}
-                          style={{
-                            fontSize: "10px",
-                            color: "#A0A0A0",
-                            background: "#111",
-                            border: "1px solid #333",
-                            padding: "4px 8px",
-                            fontFamily: '"Geist Mono", monospace',
-                            borderRadius: "4px",
-                          }}
-                        >
+                        <span key={tool} style={{ fontSize: "10px", color: "#A0A0A0", background: "#111", border: "1px solid #333", padding: "4px 8px", fontFamily: '"Geist Mono", monospace', borderRadius: "4px" }}>
                           {tool}
                         </span>
                       ))}
                     </div>
                   )}
-                  <div
-                    style={{
-                      width: "100%",
-                      color: "#CCCCCC",
-                      fontSize: "14px",
-                      lineHeight: "1.7",
-                      whiteSpace: "pre-line",
-                      fontFamily: '"Geist", sans-serif',
-                    }}
-                  >
+                  <div style={{ width: "100%", color: "#CCCCCC", fontSize: "14px", lineHeight: "1.7", whiteSpace: "pre-line", fontFamily: '"Geist", sans-serif' }}>
                     {msg.content}
                     {msg.file && (
-                      <div
-                        style={{
-                          marginTop: "20px",
-                          border: "1px solid #333",
-                          background: "#000",
-                          borderRadius: "8px",
-                          overflow: "hidden",
-                        }}
-                      >
+                      <div style={{ marginTop: "20px", border: "1px solid #333", background: "#000", borderRadius: "8px", overflow: "hidden" }}>
                         {renderFileHeader(msg)}
-                        <div
-                          style={{
-                            padding:
-                              msg.file.language === "pipeline" ||
-                              msg.file.language === "dbschema"
-                                ? "20px"
-                                : "16px",
-                            overflowX: "auto",
-                          }}
-                        >
+                        <div style={{ padding: (msg.file.language === "pipeline" || msg.file.language === "dbschema" || msg.file.language === "references") ? "20px" : "16px", overflowX: "auto" }}>
                           {renderFileContent(msg)}
                         </div>
                       </div>
@@ -1581,24 +1312,11 @@ export default function ChatPanel({
                     msg.options.length > 0 &&
                     msg.role === "assistant" &&
                     (() => {
-                      // Only show option buttons on last assistant message
-                      const lastAssistantIdx = messages.reduce(
-                        (acc, m, i) => (m.role === "assistant" ? i : acc),
-                        -1,
-                      );
-                      const currentIdx = messages.findIndex(
-                        (m) => m.id === msg.id,
-                      );
+                      const lastAssistantIdx = messages.reduce((acc, m, i) => (m.role === "assistant" ? i : acc), -1);
+                      const currentIdx = messages.findIndex((m) => m.id === msg.id);
                       if (currentIdx !== lastAssistantIdx) return null;
                       return (
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "10px",
-                            marginTop: "24px",
-                            flexWrap: "wrap",
-                          }}
-                        >
+                        <div style={{ display: "flex", gap: "10px", marginTop: "24px", flexWrap: "wrap" }}>
                           {msg.options.map((option, i) => (
                             <button
                               key={i}
@@ -1610,12 +1328,8 @@ export default function ChatPanel({
                                     {
                                       id: Date.now().toString(),
                                       role: "assistant",
-                                      content:
-                                        "Tell me what you want to change in the configuration.",
-                                      timestamp: new Date().toLocaleTimeString(
-                                        [],
-                                        { hour: "2-digit", minute: "2-digit" },
-                                      ),
+                                      content: "Tell me what you want to change in the configuration.",
+                                      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
                                     },
                                   ]);
                                   return;
@@ -1635,28 +1349,8 @@ export default function ChatPanel({
                                 textTransform: "uppercase",
                                 fontWeight: 500,
                               }}
-                              onMouseEnter={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "#EAEAEA";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "#000";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "#EAEAEA";
-                              }}
-                              onMouseLeave={(e) => {
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.background = "#080808";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.color = "#EAEAEA";
-                                (
-                                  e.currentTarget as HTMLButtonElement
-                                ).style.borderColor = "#333";
-                              }}
+                              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#EAEAEA"; (e.currentTarget as HTMLButtonElement).style.color = "#000"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#EAEAEA"; }}
+                              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#080808"; (e.currentTarget as HTMLButtonElement).style.color = "#EAEAEA"; (e.currentTarget as HTMLButtonElement).style.borderColor = "#333"; }}
                             >
                               {option}
                             </button>
@@ -1665,49 +1359,18 @@ export default function ChatPanel({
                       );
                     })()}
 
-                  <span
-                    style={{
-                      fontSize: "10px",
-                      color: "#666",
-                      marginTop: "16px",
-                      padding: "0",
-                      fontFamily: '"Geist Mono", monospace',
-                    }}
-                  >
+                  <span style={{ fontSize: "10px", color: "#666", marginTop: "16px", padding: "0", fontFamily: '"Geist Mono", monospace' }}>
                     {msg.timestamp}
                   </span>
                 </div>
               ))}
               {isTyping && (
                 <div style={{ padding: "24px 0" }}>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      fontWeight: 600,
-                      color: "#EAEAEA",
-                      fontFamily: '"Geist Mono", monospace',
-                      marginBottom: "12px",
-                      letterSpacing: "1px",
-                    }}
-                  >
+                  <div style={{ fontSize: "11px", fontWeight: 600, color: "#EAEAEA", fontFamily: '"Geist Mono", monospace', marginBottom: "12px", letterSpacing: "1px" }}>
                     SYSTEM
                   </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "4px",
-                      alignItems: "center",
-                      height: "24px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "8px",
-                        height: "12px",
-                        background: "#EAEAEA",
-                        animation: "blink 1s step-end infinite",
-                      }}
-                    />
+                  <div style={{ display: "flex", gap: "4px", alignItems: "center", height: "24px" }}>
+                    <div style={{ width: "8px", height: "12px", background: "#EAEAEA", animation: "blink 1s step-end infinite" }} />
                   </div>
                 </div>
               )}
@@ -1723,8 +1386,7 @@ export default function ChatPanel({
             bottom: 0,
             left: 0,
             right: 0,
-            background:
-              "linear-gradient(to top, rgba(0,0,0,1) 60%, rgba(0,0,0,0))",
+            background: "linear-gradient(to top, rgba(0,0,0,1) 60%, rgba(0,0,0,0))",
             padding: "24px 20px",
             zIndex: 10,
           }}
@@ -1739,63 +1401,22 @@ export default function ChatPanel({
       {contextMenu?.visible && (
         <div
           ref={contextMenuRef}
-          style={{
-            position: 'fixed',
-            left: `${contextMenu.x}px`,
-            top: `${contextMenu.y}px`,
-            background: '#0A0A0A',
-            border: '1px solid #333',
-            borderRadius: '4px',
-            padding: '4px 0',
-            zIndex: 1000,
-            minWidth: '150px',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-          }}
+          style={{ position: 'fixed', left: `${contextMenu.x}px`, top: `${contextMenu.y}px`, background: '#0A0A0A', border: '1px solid #333', borderRadius: '4px', padding: '4px 0', zIndex: 1000, minWidth: '150px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}
         >
           <button
             onClick={() => handleCopyMessage(contextMenu.messageContent)}
-            style={{
-              width: '100%',
-              padding: '8px 16px',
-              background: 'transparent',
-              border: 'none',
-              color: '#EAEAEA',
-              fontSize: '11px',
-              fontFamily: '"Geist Mono", monospace',
-              textAlign: 'left',
-              cursor: 'pointer',
-              transition: 'background 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#222';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
+            style={{ width: '100%', padding: '8px 16px', background: 'transparent', border: 'none', color: '#EAEAEA', fontSize: '11px', fontFamily: '"Geist Mono", monospace', textAlign: 'left', cursor: 'pointer', transition: 'background 0.2s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#222'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
           >
             COPY
           </button>
           {contextMenu.messageRole === 'user' && (
             <button
               onClick={() => handleEditMessage(contextMenu.messageId, contextMenu.messageContent)}
-              style={{
-                width: '100%',
-                padding: '8px 16px',
-                background: 'transparent',
-                border: 'none',
-                color: '#EAEAEA',
-                fontSize: '11px',
-                fontFamily: '"Geist Mono", monospace',
-                textAlign: 'left',
-                cursor: 'pointer',
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#222';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-              }}
+              style={{ width: '100%', padding: '8px 16px', background: 'transparent', border: 'none', color: '#EAEAEA', fontSize: '11px', fontFamily: '"Geist Mono", monospace', textAlign: 'left', cursor: 'pointer', transition: 'background 0.2s' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#222'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               EDIT
             </button>
@@ -1803,24 +1424,9 @@ export default function ChatPanel({
           <div style={{ height: '1px', background: '#333', margin: '4px 0' }} />
           <button
             onClick={() => handleDeleteMessage(contextMenu.messageId)}
-            style={{
-              width: '100%',
-              padding: '8px 16px',
-              background: 'transparent',
-              border: 'none',
-              color: '#ff6b6b',
-              fontSize: '11px',
-              fontFamily: '"Geist Mono", monospace',
-              textAlign: 'left',
-              cursor: 'pointer',
-              transition: 'background 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255,107,107,0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
+            style={{ width: '100%', padding: '8px 16px', background: 'transparent', border: 'none', color: '#ff6b6b', fontSize: '11px', fontFamily: '"Geist Mono", monospace', textAlign: 'left', cursor: 'pointer', transition: 'background 0.2s' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,107,107,0.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
           >
             DELETE
           </button>

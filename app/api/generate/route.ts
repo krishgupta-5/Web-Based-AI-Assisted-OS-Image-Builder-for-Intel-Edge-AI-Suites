@@ -23,6 +23,8 @@
  * 18.  "default" sessionId fallback replaced with null guard
  * 19.  TOKEN_BUDGET.docker raised to 1200 — prevents truncation-retry loop
  * 20.  isTruncated rewritten — only flags genuinely cut-off output
+ * 21.  Folder structure generation added — tree view of project layout
+ * 22.  References generation added — curated docs/links per stack
  */
 
 import { NextResponse } from "next/server";
@@ -31,6 +33,7 @@ import { auth } from "@clerk/nextjs/server";
 import { memoryStore } from "@/lib/memory-store";
 import { db } from "@/lib/firebase-admin";
 import { FieldValue } from "firebase-admin/firestore";
+import { getOrCreateQuota, deductTokens } from "@/lib/token-quota";
 
 // ─────────────────────────────────────────────
 // Constants
@@ -43,17 +46,18 @@ const MAX_SESSIONS       = 500;
 const PROMPT_MAX_LEN     = 2000;
 const PROMPT_MIN_LEN     = 5;
 const REQUEST_TIMEOUT_MS = 30_000;
-const N8N_TIMEOUT_MS = 45_000;
+const ACTIVEPIECES_TIMEOUT_MS = 45_000;
 
-console.log("PROJECT ID:", process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
 
 // Per-artifact token budgets
 // docker raised to 1200 to prevent truncation on healthcheck/volumes blocks
 const TOKEN_BUDGET = {
-  config:   500,
-  docker:   1200,
-  pipeline: 600,
-  markdown: 800,
+  config:          500,
+  docker:         1200,
+  pipeline:        600,
+  markdown:        800,
+  folderStructure: 600,
+  references:      500,
 } as const;
 
 // Explicit image map injected into DOCKER_PROMPT
@@ -75,18 +79,29 @@ interface DbSchema {
   diagram: string;  // rendered SVG string or image URL from Kroki
 }
 
+interface Reference {
+  title: string;
+  url: string;
+  description: string;
+  category: string; // e.g. "docs", "guide", "tool", "article"
+}
+
 interface GenerateResult {
-  yaml:     string;
-  docker:   string;
-  pipeline: string;
-  markdown: string;
-  dbSchema?: DbSchema;
+  yaml:            string;
+  docker:          string;
+  pipeline:        string;
+  markdown:        string;
+  folderStructure?: string;
+  references?:     Reference[];
+  dbSchema?:       DbSchema;
 }
 
 interface RegenerateFlags {
-  docker:   boolean;
-  pipeline: boolean;
-  markdown: boolean;
+  docker:          boolean;
+  pipeline:        boolean;
+  markdown:        boolean;
+  folderStructure: boolean;
+  references:      boolean;
 }
 
 type Role       = "user" | "assistant";
@@ -203,9 +218,11 @@ function detectChanges(oldYaml: string, newYaml: string): RegenerateFlags {
   log.info("Diff detected", { changed: [...changed] });
 
   return {
-    docker:   [...changed].some(f => dockerFields.has(f)),
-    pipeline: changed.size > 0,
-    markdown: changed.size > 0,
+    docker:          [...changed].some(f => dockerFields.has(f)),
+    pipeline:        changed.size > 0,
+    markdown:        changed.size > 0,
+    folderStructure: changed.size > 0,
+    references:      changed.size > 0,
   };
 }
 
@@ -221,19 +238,6 @@ function extractYamlBlock(text: string): string {
 
 // ─────────────────────────────────────────────
 // isTruncated — FIXED
-//
-// Previous version false-positived on valid docker-compose endings like:
-//   volumes:
-//     db_data:          ← ends with ":" but is COMPLETE
-//   depends_on:
-//     - db              ← "- db" not truncated
-//   healthcheck:        ← valid terminal key
-//
-// New logic:
-//   - A file is truncated only if the LAST NON-EMPTY line is a bare key
-//     with NO corresponding value AND the file has fewer than a minimum
-//     number of lines (i.e. it clearly stopped mid-structure).
-//   - Known safe terminal patterns are explicitly whitelisted.
 // ─────────────────────────────────────────────
 function isTruncated(text: string): boolean {
   const trimmed = text.trim();
@@ -241,32 +245,25 @@ function isTruncated(text: string): boolean {
 
   const lines = trimmed.split("\n");
 
-  // Need at least some content — very short output is suspicious
   if (lines.length < 5) return true;
 
   const last = lines[lines.length - 1].trim();
 
-  // These are valid final lines in docker-compose / YAML — never truncated
   const safeTerminals = [
-    /^[a-z_]+:$/,              // named volume key like "db_data:"
-    /^\s*retries:\s*\d+$/,     // healthcheck retries
-    /^\s*timeout:\s*\S+$/,     // healthcheck timeout
-    /^\s*interval:\s*\S+$/,    // healthcheck interval
-    /^\s*- \S+/,               // list item like "- db"
-    /^\s*volumes:$/,           // volumes: section header (valid end)
-    /^\s*depends_on:$/,        // depends_on: section header
+    /^[a-z_]+:$/,
+    /^\s*retries:\s*\d+$/,
+    /^\s*timeout:\s*\S+$/,
+    /^\s*interval:\s*\S+$/,
+    /^\s*- \S+/,
+    /^\s*volumes:$/,
+    /^\s*depends_on:$/,
   ];
 
-  // If last line matches a known safe terminal, it's NOT truncated
   if (safeTerminals.some(re => re.test(last))) return false;
 
-  // Only flag as truncated if last line is a bare "key:" with no value
-  // AND it looks like it's mid-sentence (not a section header we'd expect)
   const isBareKey = /^[a-zA-Z_-]+:$/.test(last);
   const isListDash = last === "-";
 
-  // For bare keys that aren't safe terminals, only flag if file is short
-  // (long files that end with a bare key are likely complete volume names)
   if (isBareKey && lines.length < 20) return true;
   if (isListDash) return true;
 
@@ -448,6 +445,56 @@ RULES:
 - Output raw Markdown only. No wrapping code fence around the entire document.
 - Always complete the entire document — never stop mid-section.`;
 
+const FOLDER_STRUCTURE_PROMPT = `You are a senior software engineer. Given a stack summary, output ONLY a plain-text folder/file tree for the project. No prose, no markdown fences, no explanation.
+
+Use this exact format (ASCII tree):
+<project-name>/
+├── src/
+│   ├── controllers/
+│   ├── models/
+│   ├── routes/
+│   └── index.<ext>
+├── tests/
+├── docker-compose.yaml
+├── Dockerfile
+├── .env.example
+├── package.json (or requirements.txt / go.mod)
+└── README.md
+
+RULES:
+- Root folder name must match the system name from the stack summary.
+- Include folders and files relevant to the lang/framework from the stack summary.
+- For nodejs/express: src/, controllers/, models/, routes/, middleware/, index.js
+- For python/fastapi: app/, routers/, models/, schemas/, main.py, requirements.txt
+- For go/gin or go/fiber: cmd/, internal/, handlers/, models/, main.go, go.mod
+- Always include: docker-compose.yaml, Dockerfile, .env.example, README.md
+- Include CI config file if ci_cd is not "none" (e.g. .github/workflows/ci.yml)
+- Include a tests/ or __tests__/ directory
+- Do NOT include node_modules/, __pycache__/, or build artifacts
+- Output ONLY the tree. No commentary before or after.
+- Always complete the entire tree — never stop mid-block.`;
+
+const REFERENCES_PROMPT = `You are a senior engineer. Given a stack summary, output ONLY a valid JSON array of reference links for this specific tech stack. No prose, no markdown fences.
+
+Output this exact JSON structure:
+[
+  {
+    "title": "<doc/resource title>",
+    "url": "<full https:// URL>",
+    "description": "<one sentence — what this link helps with>",
+    "category": "<docs|guide|tool|article>"
+  }
+]
+
+RULES:
+- Output ONLY the JSON array. Nothing before or after.
+- Include 6–10 references total.
+- References must be specific to the technologies in the stack summary (language, framework, database, auth, deployment).
+- Use ONLY real, well-known URLs (official docs, GitHub repos, popular guides). Never invent URLs.
+- Spread across categories: official docs, getting started guides, deployment references, auth guides.
+- Examples of valid URLs: https://expressjs.com/en/starter/hello-world.html, https://docs.docker.com/compose/, https://fastapi.tiangolo.com/tutorial/
+- Output valid JSON only — no trailing commas, no comments.`;
+
 // ─────────────────────────────────────────────
 // Core helpers
 // ─────────────────────────────────────────────
@@ -486,6 +533,29 @@ function secureHeaders(res: NextResponse): NextResponse {
 
 function errorResponse(error: string, code: string, status: number): NextResponse {
   return secureHeaders(NextResponse.json({ error, code }, { status }));
+}
+
+// ─────────────────────────────────────────────
+// References JSON parser
+// ─────────────────────────────────────────────
+function parseReferences(raw: string): Reference[] {
+  try {
+    const cleaned = raw
+      .replace(/^```(?:json)?\s*/gim, "")
+      .replace(/```\s*$/gim, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (r: any) =>
+        typeof r.title === "string" &&
+        typeof r.url === "string" &&
+        r.url.startsWith("http")
+    );
+  } catch {
+    log.warn("References JSON parse failed — returning empty array");
+    return [];
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -561,172 +631,21 @@ async function saveSessionMetadata(sessionId: string, userId: string) {
 }
 
 // ─────────────────────────────────────────────
-// Fallback DB Schema Generator
-// ─────────────────────────────────────────────
-function generateFallbackDbSchema(stackSummary: string): DbSchema | null {
-  try {
-    // Parse basic info from stack summary
-    const dbType = stackSummary.includes('postgresql') ? 'PostgreSQL' : 
-                   stackSummary.includes('mongodb') ? 'MongoDB' : 
-                   stackSummary.includes('mysql') ? 'MySQL' : 'SQL Database';
-    
-    const isSaaS = stackSummary.includes('saas');
-    const hasAuth = stackSummary.includes('jwt') || stackSummary.includes('auth');
-    
-    // Generate a basic ER diagram based on common patterns
-    let mermaid = `erDiagram
-    USERS {
-        uuid id PK
-        string email UK
-        string password_hash
-        string first_name
-        string last_name
-        timestamp created_at
-        timestamp updated_at
-    }`;
-
-    if (isSaaS) {
-      mermaid += `
-    TENANTS {
-        uuid id PK
-        string name
-        string slug UK
-        timestamp created_at
-        timestamp updated_at
-    }
-    
-    USER_TENANTS {
-        uuid user_id FK
-        uuid tenant_id FK
-        string role
-        timestamp created_at
-    }`;
-    }
-
-    mermaid += `
-    PROJECTS {
-        uuid id PK
-        string name
-        text description
-        uuid owner_id FK
-        timestamp created_at
-        timestamp updated_at
-    }
-    
-    TASKS {
-        uuid id PK
-        string title
-        text description
-        string status
-        uuid project_id FK
-        uuid assigned_to FK
-        timestamp due_date
-        timestamp created_at
-        timestamp updated_at
-    }`;
-
-    if (isSaaS) {
-      mermaid += `
-    
-    USERS ||--o{ USER_TENANTS : belongs_to
-    TENANTS ||--o{ USER_TENANTS : has
-    TENANTS ||--o{ PROJECTS : owns
-    USERS ||--o{ PROJECTS : owns
-    PROJECTS ||--o{ TASKS : contains
-    USERS ||--o{ TASKS : assigned_to`;
-    } else {
-      mermaid += `
-    
-    USERS ||--o{ PROJECTS : owns
-    PROJECTS ||--o{ TASKS : contains
-    USERS ||--o{ TASKS : assigned_to`;
-    }
-
-    const diagram = `# Database Schema (${dbType})
-
-## Entity Relationship Diagram
-
-${mermaid}
-
-## Table Descriptions
-
-### Users
-- **id**: Primary key (UUID)
-- **email**: User email (unique)
-- **password_hash**: Encrypted password
-- **first_name**: User's first name
-- **last_name**: User's last name
-- **created_at**: Account creation timestamp
-- **updated_at**: Last update timestamp
-
-${isSaaS ? `### Tenants
-- **id**: Primary key (UUID)
-- **name**: Organization name
-- **slug**: URL-friendly identifier (unique)
-- **created_at**: Tenant creation timestamp
-- **updated_at**: Last update timestamp
-
-### User_Tenants
-- **user_id**: Foreign key to Users
-- **tenant_id**: Foreign key to Tenants
-- **role**: User role in tenant (owner, admin, member)
-- **created_at**: Association timestamp
-
-` : ''}### Projects
-- **id**: Primary key (UUID)
-- **name**: Project name
-- **description**: Project description
-- **owner_id**: Foreign key to Users (or Tenants for SaaS)
-- **created_at**: Project creation timestamp
-- **updated_at**: Last update timestamp
-
-### Tasks
-- **id**: Primary key (UUID)
-- **title**: Task title
-- **description**: Task description
-- **status**: Task status (todo, in_progress, done)
-- **project_id**: Foreign key to Projects
-- **assigned_to**: Foreign key to Users
-- **due_date**: Task due date
-- **created_at**: Task creation timestamp
-- **updated_at**: Last update timestamp
-
-## Relationships
-
-${isSaaS ? `- Users belong to multiple Tenants through User_Tenants
-- Tenants have multiple Users through User_Tenants
-- Tenants own multiple Projects
-- Users own multiple Projects
-- Projects contain multiple Tasks
-- Users are assigned to multiple Tasks` : `- Users own multiple Projects
-- Projects contain multiple Tasks
-- Users are assigned to multiple Tasks`}`;
-
-    log.info("Generated fallback DB schema", { dbType, isSaaS });
-    
-    return { mermaid, diagram };
-  } catch (err) {
-    log.error("Failed to generate fallback DB schema", { err: String(err) });
-    return null;
-  }
-}
-
-// ─────────────────────────────────────────────
 // n8n DB Schema + Diagram
 // ─────────────────────────────────────────────
 async function callN8nDbDesign(
   prompt: string,
   stackSummary: string
 ): Promise<DbSchema | null> {
-  const webhookUrl = process.env.N8N_WEBHOOK_URL;
-  log.info("Webhook URL check", { webhookUrl: webhookUrl ? "SET" : "NOT_SET", url: webhookUrl || "" });
+  const webhookUrl = process.env.ACTIVEPIECES_WEBHOOK_URL;
+  
   if (!webhookUrl) {
-    log.warn("N8N_WEBHOOK_URL not set - using fallback DB design");
-    return generateFallbackDbSchema(stackSummary);
+    log.warn("ACTIVEPIECES_WEBHOOK_URL not set - skipping DB schema generation");
+    return null;
   }
 
   try {
-    log.info("Calling n8n DB design webhook", { prompt: prompt.slice(0, 80) });
+    log.info("Calling Activepieces DB design webhook", { prompt: prompt.slice(0, 80) });
 
     const res = await withTimeout(
       fetch(webhookUrl, {
@@ -734,56 +653,41 @@ async function callN8nDbDesign(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, stackSummary }),
       }),
-      N8N_TIMEOUT_MS
+      ACTIVEPIECES_TIMEOUT_MS
     );
 
     if (!res.ok) {
-      log.error("n8n webhook error", { status: res.status, body: await res.text() });
-      return generateFallbackDbSchema(stackSummary);
+      log.error("Activepieces webhook error", { status: res.status, body: await res.text() });
+      return null;
     }
 
     const text = await res.text();
-    // n8n sometimes leaks the expression "=" prefix into Text responses
     const cleanText = text.trimStart().startsWith('=') ? text.trimStart().slice(1) : text;
     
     let data: any;
     try {
       data = JSON.parse(cleanText);
     } catch {
-      log.error("n8n response is not JSON", { preview: cleanText.slice(0, 200) });
-      // Fallback: generate a basic DB schema based on the stack summary
-      return generateFallbackDbSchema(stackSummary);
+      log.error("Activepieces response is not JSON", { preview: cleanText.slice(0, 200) });
+      return null;
     }
 
     const payload = Array.isArray(data) ? data[0] : data;
 
-    const mermaid: string =
-      payload?.mermaid   ??
-      payload?.schema    ??
-      payload?.erd       ??
-      payload?.text      ??
-      "";
-
-    const diagram: string =
-      payload?.diagram   ??
-      payload?.svg       ??
-      payload?.image     ??
-      payload?.url       ??
-      payload?.output    ??
-      "";
+    const mermaid: string = payload?.mermaid ?? payload?.schema ?? payload?.erd ?? payload?.text ?? "";
+    const diagram: string = payload?.diagram ?? payload?.svg ?? payload?.image ?? payload?.url ?? payload?.output ?? "";
 
     if (!mermaid && !diagram) {
-      log.warn("n8n returned empty DB schema payload", { payload });
-      return generateFallbackDbSchema(stackSummary);
+      log.warn("Activepieces returned empty DB schema payload", { payload });
+      return null;
     }
 
-    log.info("n8n DB schema received", { hasMermaid: !!mermaid, hasDiagram: !!diagram });
+    log.info("Activepieces DB schema received", { hasMermaid: !!mermaid, hasDiagram: !!diagram });
     return { mermaid, diagram };
 
   } catch (err) {
-    log.error("n8n call failed", { err: String(err) });
-    // Fallback: generate a basic DB schema based on the stack summary
-    return generateFallbackDbSchema(stackSummary);
+    log.error("Activepieces call failed", { err: String(err) });
+    return null;
   }
 }
 
@@ -798,7 +702,7 @@ async function callGroq(
   maxTokens:    number,
   label:        string,
   attempt0 =    0
-): Promise<string | null> {
+): Promise<{ content: string; tokens: number } | null> {
   const temperature = label === "markdown" ? 0.3 : 0.1;
 
   const stopTokens = (label === "config" || label === "docker")
@@ -847,8 +751,9 @@ async function callGroq(
       const data  = await res.json();
       const raw: string = data?.choices?.[0]?.message?.content ?? "";
       const cleaned = extractYamlBlock(stripFences(raw));
+      const tokens = data?.usage?.total_tokens ?? 0;
 
-      log.info("Groq call OK", { label, tokens: data?.usage?.total_tokens });
+      log.info("Groq call OK", { label, tokens });
 
       if (isTruncated(cleaned) && attempt < MAX_RETRIES) {
         log.warn("Truncated output detected, retrying", { label, attempt });
@@ -858,7 +763,7 @@ async function callGroq(
         );
       }
 
-      return cleaned;
+      return { content: cleaned, tokens };
 
     } catch (err) {
       log.error("Groq fetch error", { label, attempt, err: String(err) });
@@ -867,6 +772,54 @@ async function callGroq(
     }
   }
   return null;
+}
+
+// ─────────────────────────────────────────────
+// Groq call for references (raw content, no YAML extraction)
+// ─────────────────────────────────────────────
+async function callGroqRaw(
+  apiKey:       string,
+  systemPrompt: string,
+  userMessage:  string,
+  history:      HistoryMsg[],
+  maxTokens:    number,
+  label:        string,
+): Promise<{ content: string; tokens: number } | null> {
+  try {
+    const fetchPromise = fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method:  "POST",
+      headers: {
+        Authorization:  `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...history,
+          { role: "user",   content: userMessage },
+        ],
+        temperature: 0.1,
+        max_tokens:  maxTokens,
+        top_p:       0.9,
+      }),
+    });
+
+    const res = await withTimeout(fetchPromise, REQUEST_TIMEOUT_MS);
+    if (!res.ok) {
+      log.error("Groq raw API error", { label, status: res.status });
+      return null;
+    }
+
+    const data    = await res.json();
+    const content: string = data?.choices?.[0]?.message?.content ?? "";
+    const tokens  = data?.usage?.total_tokens ?? 0;
+    log.info("Groq raw call OK", { label, tokens });
+    return { content, tokens };
+  } catch (err) {
+    log.error("Groq raw fetch error", { label, err: String(err) });
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -879,6 +832,15 @@ export async function POST(req: Request) {
     const { userId } = await auth();
     if (!userId) {
       return new Response("Unauthorized", { status: 401 });
+    }
+
+    const quota = await getOrCreateQuota(userId);
+    if (quota.exhausted || quota.tokensUsed >= quota.tokensLimit) {
+      return errorResponse(
+        "Daily token limit reached. Your quota resets in 24 hours.",
+        "TOKEN_EXHAUSTED",
+        429
+      );
     }
 
     // ── 1. Parse & validate ──────────────────────────────────────────────────
@@ -947,10 +909,11 @@ export async function POST(req: Request) {
     if (mode === "modify" && session.lastResult) {
       const oldYaml = session.lastResult.yaml;
 
-      const yaml = await callGroq(
+      const configResult = await callGroq(
         apiKey, SOFTWARE_CONFIG_PROMPT, userMessage, history, TOKEN_BUDGET.config, "config"
       );
-      if (!yaml) return errorResponse("Config regeneration failed", "LLM_ERROR", 500);
+      if (!configResult) return errorResponse("Config regeneration failed", "LLM_ERROR", 500);
+      const yaml = configResult.content;
 
       session.history.push({ role: "user",      content: userMessage });
       session.history.push({ role: "assistant", content: compressForHistory(yaml, "config") });
@@ -958,35 +921,34 @@ export async function POST(req: Request) {
       const flags = detectChanges(oldYaml, yaml);
       log.info("Modify regen flags", { sessionId, flags });
 
-      let docker   = session.lastResult.docker;
-      let pipeline = session.lastResult.pipeline;
-      let markdown = session.lastResult.markdown;
-      let dbSchema = session.lastResult.dbSchema;
+      let docker          = session.lastResult.docker;
+      let pipeline        = session.lastResult.pipeline;
+      let markdown        = session.lastResult.markdown;
+      let folderStructure = session.lastResult.folderStructure;
+      let references      = session.lastResult.references;
+      let dbSchema        = session.lastResult.dbSchema;
+
+      let dockerResult:          { content: string; tokens: number } | null = null;
+      let pipelineResult:        { content: string; tokens: number } | null = null;
+      let markdownResult:        { content: string; tokens: number } | null = null;
+      let folderStructureResult: { content: string; tokens: number } | null = null;
+      let referencesResult:      { content: string; tokens: number } | null = null;
 
       if (flags.docker) {
-        const ctx = `Generate docker-compose for this UPDATED stack: ${summarizeYaml(yaml)}. The db field may have changed — use the IMAGE MAP to pick the correct database image.`;
-        const fresh = await callGroq(apiKey, DOCKER_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.docker, "docker");
-        if (fresh) {
-          docker = fresh;
+        const ctx = `Generate docker-compose for this UPDATED stack: ${summarizeYaml(yaml)}. The db field may have changed - use the IMAGE MAP to pick the correct database image.`;
+        dockerResult = await callGroq(apiKey, DOCKER_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.docker, "docker");
+        if (dockerResult) {
+          docker = dockerResult.content;
           session.history.push({ role: "assistant", content: compressForHistory(docker, "docker") });
         }
       }
 
       if (flags.pipeline) {
         const ctx = `Generate pipeline for UPDATED system: ${summarizeYaml(yaml)}`;
-        const fresh = await callGroq(apiKey, PIPELINE_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.pipeline, "pipeline");
-        if (fresh) {
-          pipeline = fresh;
+        pipelineResult = await callGroq(apiKey, PIPELINE_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.pipeline, "pipeline");
+        if (pipelineResult) {
+          pipeline = pipelineResult.content;
           session.history.push({ role: "assistant", content: compressForHistory(pipeline, "pipeline") });
-        }
-      }
-
-      if (flags.markdown) {
-        const ctx = `Project (updated): ${prompt}\nStack summary: ${summarizeYaml(yaml)}`;
-        const fresh = await callGroq(apiKey, MARKDOWN_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.markdown, "markdown");
-        if (fresh) {
-          markdown = fresh;
-          session.history.push({ role: "assistant", content: compressForHistory(markdown, "markdown") });
         }
       }
 
@@ -995,18 +957,54 @@ export async function POST(req: Request) {
         if (n8nResult) dbSchema = n8nResult;
       }
 
+      if (flags.markdown) {
+        const ctx = `Project (updated): ${prompt}\nStack summary: ${summarizeYaml(yaml)}`;
+        markdownResult = await callGroq(apiKey, MARKDOWN_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.markdown, "markdown");
+        if (markdownResult) {
+          markdown = markdownResult.content;
+          session.history.push({ role: "assistant", content: compressForHistory(markdown, "markdown") });
+        }
+      }
+
+      if (flags.folderStructure) {
+        const ctx = `Generate folder structure for this UPDATED stack: ${summarizeYaml(yaml)}`;
+        folderStructureResult = await callGroq(apiKey, FOLDER_STRUCTURE_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.folderStructure, "folderStructure");
+        if (folderStructureResult) {
+          folderStructure = folderStructureResult.content;
+        }
+      }
+
+      if (flags.references) {
+        const ctx = `Generate reference links for this UPDATED stack: ${summarizeYaml(yaml)}`;
+        referencesResult = await callGroqRaw(apiKey, REFERENCES_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.references, "references");
+        if (referencesResult) {
+          references = parseReferences(referencesResult.content);
+        }
+      }
+
+      let totalTokens = configResult.tokens;
+      if (flags.docker   && dockerResult)          totalTokens += dockerResult.tokens;
+      if (flags.pipeline && pipelineResult)         totalTokens += pipelineResult.tokens;
+      if (flags.markdown && markdownResult)         totalTokens += markdownResult.tokens;
+      if (flags.folderStructure && folderStructureResult) totalTokens += folderStructureResult.tokens;
+      if (flags.references && referencesResult)     totalTokens += referencesResult.tokens;
+      
+      await deductTokens(userId, totalTokens);
+      log.info("Tokens deducted for modify", { userId, totalTokens });
+
       const result: GenerateResult = {
         yaml:     safeYaml(yaml),
         docker:   safeYaml(docker),
         pipeline,
         markdown,
+        folderStructure,
+        references,
         dbSchema,
       };
 
       session.cache.delete(cacheKey);
       session.lastResult = result;
 
-      // Save assistant response to Firestore and memory store
       await saveAssistantMessage(sessionId, userId, JSON.stringify(result));
       await memoryStore.addMessage(sessionId, {
         role: 'assistant',
@@ -1014,7 +1012,6 @@ export async function POST(req: Request) {
         userId
       });
 
-      // Save complete generation result as a single artifact for history loading
       await saveArtifact(sessionId, userId, "complete_result", JSON.stringify(result));
       await memoryStore.addArtifact(sessionId, {
         type: "complete_result",
@@ -1022,39 +1019,29 @@ export async function POST(req: Request) {
         userId
       });
 
-      // Also save individual artifacts for direct access
       await saveArtifact(sessionId, userId, "config", yaml);
-      await memoryStore.addArtifact(sessionId, {
-        type: "config",
-        content: yaml,
-        userId
-      });
+      await memoryStore.addArtifact(sessionId, { type: "config", content: yaml, userId });
       if (docker) {
         await saveArtifact(sessionId, userId, "docker", docker);
-        await memoryStore.addArtifact(sessionId, {
-          type: "docker",
-          content: docker,
-          userId
-        });
+        await memoryStore.addArtifact(sessionId, { type: "docker", content: docker, userId });
       }
       if (pipeline) {
         await saveArtifact(sessionId, userId, "pipeline", pipeline);
-        await memoryStore.addArtifact(sessionId, {
-          type: "pipeline",
-          content: pipeline,
-          userId
-        });
+        await memoryStore.addArtifact(sessionId, { type: "pipeline", content: pipeline, userId });
       }
       if (markdown) {
         await saveArtifact(sessionId, userId, "docs", markdown);
-        await memoryStore.addArtifact(sessionId, {
-          type: "docs",
-          content: markdown,
-          userId
-        });
+        await memoryStore.addArtifact(sessionId, { type: "docs", content: markdown, userId });
+      }
+      if (folderStructure) {
+        await saveArtifact(sessionId, userId, "folderStructure", folderStructure);
+        await memoryStore.addArtifact(sessionId, { type: "folderStructure", content: folderStructure, userId });
+      }
+      if (references) {
+        await saveArtifact(sessionId, userId, "references", JSON.stringify(references));
+        await memoryStore.addArtifact(sessionId, { type: "references", content: JSON.stringify(references), userId });
       }
 
-      // Save session metadata
       await saveSessionMetadata(sessionId, userId);
       await memoryStore.updateSession(sessionId, { userId });
 
@@ -1066,10 +1053,11 @@ export async function POST(req: Request) {
     // ────────────────────────────────────────────────────────────────────────
 
     // Step 1 — System config
-    const yaml = await callGroq(
+    const configResult = await callGroq(
       apiKey, SOFTWARE_CONFIG_PROMPT, userMessage, history, TOKEN_BUDGET.config, "config"
     );
-    if (!yaml) return errorResponse("Config generation failed", "LLM_ERROR", 500);
+    if (!configResult) return errorResponse("Config generation failed", "LLM_ERROR", 500);
+    const yaml = configResult.content;
 
     session.history.push({ role: "user",      content: userMessage });
     session.history.push({ role: "assistant", content: compressForHistory(yaml, "config") });
@@ -1078,46 +1066,76 @@ export async function POST(req: Request) {
 
     // Step 2 — Docker Compose
     const dockerCtx = `Generate docker-compose for this stack: ${stackSummary}`;
-    const docker = await callGroq(
+    const dockerResult = await callGroq(
       apiKey, DOCKER_PROMPT, dockerCtx, trimHistory(session.history), TOKEN_BUDGET.docker, "docker"
     );
-    if (!docker) return errorResponse("Docker generation failed", "LLM_ERROR", 500);
+    if (!dockerResult) return errorResponse("Docker generation failed", "LLM_ERROR", 500);
+    const docker = dockerResult.content;
     session.history.push({ role: "assistant", content: compressForHistory(docker, "docker") });
 
     // Step 3 — Pipeline
     const pipelineCtx = `Generate CI/CD pipeline for: ${stackSummary}`;
-    const pipeline = await callGroq(
+    const pipelineResult = await callGroq(
       apiKey, PIPELINE_PROMPT, pipelineCtx, trimHistory(session.history), TOKEN_BUDGET.pipeline, "pipeline"
     );
-    if (!pipeline) return errorResponse("Pipeline generation failed", "LLM_ERROR", 500);
+    if (!pipelineResult) return errorResponse("Pipeline generation failed", "LLM_ERROR", 500);
+    const pipeline = pipelineResult.content;
     session.history.push({ role: "assistant", content: compressForHistory(pipeline, "pipeline") });
 
     // Step 4 — Markdown docs
     const markdownCtx = `Project description: ${prompt}\nStack summary: ${stackSummary}`;
-    const markdown = await callGroq(
+    const markdownResult = await callGroq(
       apiKey, MARKDOWN_PROMPT, markdownCtx, trimHistory(session.history), TOKEN_BUDGET.markdown, "markdown"
     );
-    if (!markdown) return errorResponse("Docs generation failed", "LLM_ERROR", 500);
+    if (!markdownResult) return errorResponse("Docs generation failed", "LLM_ERROR", 500);
+    const markdown = markdownResult.content;
     session.history.push({ role: "assistant", content: compressForHistory(markdown, "markdown") });
 
-    // Step 5 — DB Schema via n8n (non-blocking)
+    // Step 5 — Folder Structure
+    const folderCtx = `Generate folder structure for this stack: ${stackSummary}`;
+    const folderStructureResult = await callGroq(
+      apiKey, FOLDER_STRUCTURE_PROMPT, folderCtx, trimHistory(session.history), TOKEN_BUDGET.folderStructure, "folderStructure"
+    );
+    const folderStructure = folderStructureResult?.content ?? "";
+
+    // Step 6 — References (non-blocking, raw JSON)
+    const referencesCtx = `Generate reference links for this stack: ${stackSummary}`;
+    const referencesRaw = await callGroqRaw(
+      apiKey, REFERENCES_PROMPT, referencesCtx, trimHistory(session.history), TOKEN_BUDGET.references, "references"
+    );
+    const references = referencesRaw ? parseReferences(referencesRaw.content) : [];
+
+    // Step 7 — DB Schema via n8n (non-blocking)
     const dbSchema = await callN8nDbDesign(prompt, stackSummary);
     if (dbSchema) {
       log.info("DB schema attached to result");
     }
 
+    // Count and deduct tokens
+    const totalTokens =
+      configResult.tokens +
+      dockerResult.tokens +
+      pipelineResult.tokens +
+      markdownResult.tokens +
+      (folderStructureResult?.tokens ?? 0) +
+      (referencesRaw?.tokens ?? 0);
+    
+    await deductTokens(userId, totalTokens);
+    log.info("Tokens deducted", { userId, totalTokens });
+
     const result: GenerateResult = {
-      yaml:     safeYaml(yaml),
-      docker:   safeYaml(docker),
-      pipeline: safeYaml(pipeline),
+      yaml:            safeYaml(yaml),
+      docker:          safeYaml(docker),
+      pipeline:        safeYaml(pipeline),
       markdown,
+      folderStructure,
+      references,
       ...(dbSchema ? { dbSchema } : {}),
     };
 
     session.cache.set(cacheKey, result);
     session.lastResult = result;
 
-    // Save assistant response to Firestore and memory store
     await saveAssistantMessage(sessionId, userId, JSON.stringify(result));
     await memoryStore.addMessage(sessionId, {
       role: 'assistant',
@@ -1125,7 +1143,6 @@ export async function POST(req: Request) {
       userId
     });
 
-    // Save complete generation result as a single artifact for history loading
     await saveArtifact(sessionId, userId, "complete_result", JSON.stringify(result));
     await memoryStore.addArtifact(sessionId, {
       type: "complete_result",
@@ -1133,33 +1150,23 @@ export async function POST(req: Request) {
       userId
     });
 
-    // Also save individual artifacts for direct access
     await saveArtifact(sessionId, userId, "config", yaml);
-    await memoryStore.addArtifact(sessionId, {
-      type: "config",
-      content: yaml,
-      userId
-    });
+    await memoryStore.addArtifact(sessionId, { type: "config", content: yaml, userId });
     await saveArtifact(sessionId, userId, "docker", docker);
-    await memoryStore.addArtifact(sessionId, {
-      type: "docker",
-      content: docker,
-      userId
-    });
+    await memoryStore.addArtifact(sessionId, { type: "docker", content: docker, userId });
     await saveArtifact(sessionId, userId, "pipeline", pipeline);
-    await memoryStore.addArtifact(sessionId, {
-      type: "pipeline",
-      content: pipeline,
-      userId
-    });
+    await memoryStore.addArtifact(sessionId, { type: "pipeline", content: pipeline, userId });
     await saveArtifact(sessionId, userId, "docs", markdown);
-    await memoryStore.addArtifact(sessionId, {
-      type: "docs",
-      content: markdown,
-      userId
-    });
+    await memoryStore.addArtifact(sessionId, { type: "docs", content: markdown, userId });
+    if (folderStructure) {
+      await saveArtifact(sessionId, userId, "folderStructure", folderStructure);
+      await memoryStore.addArtifact(sessionId, { type: "folderStructure", content: folderStructure, userId });
+    }
+    if (references.length > 0) {
+      await saveArtifact(sessionId, userId, "references", JSON.stringify(references));
+      await memoryStore.addArtifact(sessionId, { type: "references", content: JSON.stringify(references), userId });
+    }
 
-    // Save session metadata
     await saveSessionMetadata(sessionId, userId);
     await memoryStore.updateSession(sessionId, { userId });
 
