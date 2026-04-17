@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI OS Builder",
+  title: "EDGE-OS",
   description: "Build custom OS images for Intel Edge AI Suites with AI assistance",
 };
 

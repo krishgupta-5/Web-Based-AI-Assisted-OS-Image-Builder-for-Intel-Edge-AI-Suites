@@ -3,8 +3,11 @@
 import React from "react";
 import Link from "next/link";
 import { Terminal, Box, Cloud } from "lucide-react";
+import { useAuth } from "@clerk/nextjs";
 
 export default function LaunchingSoonPage() {
+  const { isSignedIn } = useAuth();
+
   return (
     <div
       style={{
@@ -73,25 +76,51 @@ export default function LaunchingSoonPage() {
             />
             <span>PRE-RELEASE</span>
           </div>
-          <Link href="/login" style={{ textDecoration: "none" }}>
-            <button
-              style={{
-                background: "transparent",
-                border: "none",
-                color: "#A1A1AA",
-                cursor: "pointer",
-                fontSize: "11px",
-                fontFamily: '"Geist Mono", monospace',
-                padding: "4px 8px",
-                borderRadius: "2px",
-                transition: "color 0.2s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
-              onMouseLeave={(e) => (e.currentTarget.style.color = "#A1A1AA")}
-            >
-              [ LOGIN ]
-            </button>
-          </Link>
+
+          {/* CLERK CONDITIONAL RENDERING */}
+          {isSignedIn === false && (
+            <Link href="/login" style={{ textDecoration: "none" }}>
+              <button
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#A1A1AA",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontFamily: '"Geist Mono", monospace',
+                  padding: "4px 8px",
+                  borderRadius: "2px",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#A1A1AA")}
+              >
+                [ LOGIN ]
+              </button>
+            </Link>
+          )}
+
+          {isSignedIn === true && (
+            <Link href="/chat" style={{ textDecoration: "none" }}>
+              <button
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#A1A1AA",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontFamily: '"Geist Mono", monospace',
+                  padding: "4px 8px",
+                  borderRadius: "2px",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "#A1A1AA")}
+              >
+                [ DASHBOARD ]
+              </button>
+            </Link>
+          )}
         </div>
       </div>
 

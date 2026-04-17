@@ -541,7 +541,7 @@ export default function ChatPanel({
   showLoginModal,
   onShowLoginModal,
 }: ChatPanelProps) {
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -1050,8 +1050,9 @@ export default function ChatPanel({
     setMessages((prev) => [...prev, userMsg]);
     if (!overrideInput) setInput("");
     setIsTyping(true);
-    if (textareaRef.current && !overrideInput)
-      textareaRef.current.style.height = "24px";
+    if (!overrideInput && textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
 
     try {
       let data = generatedData;
@@ -1148,6 +1149,12 @@ export default function ChatPanel({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
+    
+    // Auto-resize magic
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto"; // Reset height to recalculate
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`; // Expand to fit content
+    }
   };
 
   const handleLoginModalClose = () => {
@@ -1521,7 +1528,7 @@ export default function ChatPanel({
             <span style={{ fontSize: "10px", fontWeight: 600, fontFamily: '"Geist Mono", monospace', letterSpacing: "0.5px" }}>MENU</span>
           </button>
           <div style={{ fontSize: "13px", fontWeight: 600, color: "#EAEAEA", letterSpacing: "1px", fontFamily: '"Geist Mono", monospace' }}>
-            EDGE-OS{" "}<span style={{ color: "#666", fontWeight: 400 }}>// WKSP</span>
+            EDGE-OS
           </div>
         </div>
 
@@ -1580,7 +1587,7 @@ export default function ChatPanel({
 
       {/* Main content */}
       <div style={{ flex: 1, position: "relative", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <div style={{ flex: 1, overflowY: "auto", paddingBottom: "120px" }}>
+        <div style={{ flex: 1, overflowY: "auto", paddingBottom: "180px" }}>
           {messages.length === 0 ? (
             <div style={{ display: "flex", flexDirection: "column", padding: "40px 20px", maxWidth: "900px", margin: "0 auto", width: "100%" }}>
               <div style={{ marginBottom: "64px" }}>
@@ -1633,7 +1640,7 @@ export default function ChatPanel({
                   }}
                 >
                   <div style={{ fontSize: "11px", fontWeight: 600, color: msg.role === "user" ? "#A0A0A0" : "#EAEAEA", fontFamily: '"Geist Mono", monospace', marginBottom: "12px", letterSpacing: "1px", textTransform: "uppercase" }}>
-                    {msg.role === "user" ? "SAHIL" : "SYSTEM"}
+                    {msg.role === "user" ? ((user?.firstName && user?.lastName ? `${user.firstName} ${user.lastName}` : user?.firstName || user?.lastName || "USER").toUpperCase()) : "SYSTEM"}
                   </div>
                   {msg.tools && (
                     <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>

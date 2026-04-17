@@ -70,6 +70,79 @@ function Toast({ message, onDone }: { message: string; onDone: () => void }) {
   );
 }
 
+// Extracted Right-Click Context Menu
+interface ContextMenuProps {
+  visible: boolean;
+  x: number;
+  y: number;
+  sessionId: string;
+  sessionTitle: string;
+  onRename: (id: string, title: string) => void;
+  onExport: (id: string) => void;
+  onDelete: (id: string) => void;
+  menuRef: React.RefObject<HTMLDivElement | null>;
+}
+
+function SessionContextMenu({
+  visible,
+  x,
+  y,
+  sessionId,
+  sessionTitle,
+  onRename,
+  onExport,
+  onDelete,
+  menuRef
+}: ContextMenuProps) {
+  if (!visible) return null;
+
+  const ctxBtn: React.CSSProperties = {
+    width: "100%", padding: "10px 16px", background: "transparent", border: "none",
+    color: "#A1A1AA", fontSize: "11px", fontWeight: 600, fontFamily: '"Geist Mono",monospace',
+    textAlign: "left", letterSpacing: "1px", cursor: "pointer", transition: "all 0.2s ease",
+  };
+
+  return (
+    <div
+      ref={menuRef}
+      style={{
+        position: "fixed", left: `${x}px`, top: `${y}px`,
+        background: "#0A0A0A", border: "1px solid #222", borderRadius: "2px",
+        padding: "4px 0", zIndex: 1000, minWidth: "150px",
+        boxShadow: "0 10px 30px rgba(0,0,0,0.8)"
+      }}
+    >
+      <button
+        onClick={() => onRename(sessionId, sessionTitle)}
+        style={ctxBtn}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "#111"; e.currentTarget.style.color = "#EAEAEA"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#A1A1AA"; }}
+      >
+        RENAME
+      </button>
+      <button
+        onClick={() => onExport(sessionId)}
+        style={ctxBtn}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "#111"; e.currentTarget.style.color = "#EAEAEA"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#A1A1AA"; }}
+      >
+        EXPORT
+      </button>
+
+      <div style={{ height: "1px", background: "#222", margin: "4px 0" }} />
+
+      <button
+        onClick={() => onDelete(sessionId)}
+        style={{ ...ctxBtn, color: "#ef4444" }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+      >
+        DELETE
+      </button>
+    </div>
+  );
+}
+
 export default function Sidebar({
   activeAgentId,
   onSelectAgent,
@@ -95,7 +168,6 @@ export default function Sidebar({
     visible: boolean; x: number; y: number; sessionId: string; sessionTitle: string;
   } | null>(null);
 
-  // State and ref for the new User Profile Menu
   const [showUserMenu, setShowUserMenu] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -135,7 +207,6 @@ export default function Sidebar({
     [isOpen, sidebarWidth]
   );
 
-  // Avatar & Identity Logic
   const displayName = user?.firstName
     ? `${user.firstName}${user.lastName ? " " + user.lastName : ""}`
     : (user?.primaryEmailAddress?.emailAddress ?? "USER");
@@ -158,13 +229,14 @@ export default function Sidebar({
     };
 
     document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("contextmenu", handleClickOutside);
 
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("contextmenu", handleClickOutside);
     };
   }, []);
+
+  useEffect(() => {
+  }, [userSessions]);
 
   const fetchUserSessions = async () => {
     setLoading(true);
@@ -306,13 +378,13 @@ export default function Sidebar({
           ) : filteredSessions.length > 0 ? (
             <>
               <div style={{ fontSize: "10px", color: "#555", fontFamily: '"Geist Mono",monospace', textTransform: "uppercase", letterSpacing: "1px", marginBottom: "12px", paddingLeft: "8px", fontWeight: 600 }}>
-                ARCHIVE {searchQuery && `(${filteredSessions.length})`}
+                SESSIONS {searchQuery && `(${filteredSessions.length})`}
               </div>
               {filteredSessions.map((session) => (
                 <HistoryItem
                   key={session.sessionId}
                   sessionId={session.sessionId}
-                  title={session.lastMessage || `Chat with ${session.messageCount} messages`}
+                  title={session.lastMessage || `Chat ${session.messageCount} messages`}
                   timestamp={session.updatedAt}
                   onContextMenu={(e, sessionId, sessionTitle) => {
                     e.preventDefault();
@@ -406,18 +478,18 @@ export default function Sidebar({
             onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }} />
         )}
 
-        {/* Context menu with clamped position */}
-        {contextMenu?.visible && (
-          <div ref={contextMenuRef} style={{ position: "fixed", left: `${contextMenu.x}px`, top: `${contextMenu.y}px`, background: "#0A0A0A", border: "1px solid #222", borderRadius: "2px", padding: "4px 0", zIndex: 1000, minWidth: `${MENU_W}px`, boxShadow: "0 10px 30px rgba(0,0,0,0.8)" }}>
-            <button onClick={() => handleRenameSession(contextMenu.sessionId, contextMenu.sessionTitle)} style={ctxBtn}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "#111"; e.currentTarget.style.color = "#EAEAEA"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#A1A1AA"; }}>RENAME</button>
-            <button onClick={() => handleExportSession(contextMenu.sessionId)} style={ctxBtn}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "#111"; e.currentTarget.style.color = "#EAEAEA"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#A1A1AA"; }}>EXPORT</button>
-            <div style={{ height: "1px", background: "#222", margin: "4px 0" }} />
-            <button onClick={() => handleDeleteSession(contextMenu.sessionId)} style={{ ...ctxBtn, color: "#ef4444" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>DELETE</button>
-          </div>
-        )}
+        {/* The new dedicated Right-Click Context Menu */}
+        <SessionContextMenu
+          visible={contextMenu?.visible ?? false}
+          x={contextMenu?.x ?? 0}
+          y={contextMenu?.y ?? 0}
+          sessionId={contextMenu?.sessionId ?? ""}
+          sessionTitle={contextMenu?.sessionTitle ?? ""}
+          onRename={handleRenameSession}
+          onExport={handleExportSession}
+          onDelete={handleDeleteSession}
+          menuRef={contextMenuRef}
+        />
       </aside>
 
       <style dangerouslySetInnerHTML={{
@@ -434,12 +506,6 @@ const popupMenuBtn: CSSProperties = {
   fontSize: "12px", fontWeight: 600, fontFamily: '"Geist Mono",monospace',
   textTransform: "uppercase", letterSpacing: "1px", cursor: "pointer",
   transition: "all 0.2s ease", padding: "12px 16px",
-};
-
-const ctxBtn: CSSProperties = {
-  width: "100%", padding: "10px 16px", background: "transparent", border: "none",
-  color: "#A1A1AA", fontSize: "11px", fontWeight: 600, fontFamily: '"Geist Mono",monospace',
-  textAlign: "left", letterSpacing: "1px", cursor: "pointer", transition: "all 0.2s ease",
 };
 
 function HistoryItem({ sessionId, title, timestamp, active = false, onContextMenu }: {
