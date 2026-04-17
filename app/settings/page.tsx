@@ -329,6 +329,44 @@ function ProfileSection() {
 }
 
 function PreferencesSection() {
+  const [isClearing, setIsClearing] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+
+  const handleClearHistory = async () => {
+    setIsClearing(true);
+    try {
+      // Clear all sessions for the user
+      const response = await fetch('/api/chat-history?clearAll=true', {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log(result.message);
+        
+        // Clear all local storage chat history
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('chatHistory_')) {
+            localStorage.removeItem(key);
+          }
+        });
+        
+        // Show success message or redirect
+        alert('Chat history cleared successfully!');
+        window.location.reload();
+      } else {
+        console.error('Failed to clear chat history');
+        alert('Failed to clear chat history. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error clearing chat history:', error);
+      alert('Error clearing chat history. Please try again.');
+    } finally {
+      setIsClearing(false);
+      setShowConfirmDialog(false);
+    }
+  };
+
   return (
     <div style={{ animation: "pipFade 0.2s ease-out forwards" }}>
       <SectionHeader
@@ -364,7 +402,179 @@ function PreferencesSection() {
           description="Hide sidebar and extraneous UI elements while generating infrastructure."
           defaultChecked={false}
         />
+        <div style={{ height: "1px", width: "100%", background: "#111" }} />
+        
+        {/* Clear History Section */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "24px",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: "12px",
+                color: "#EAEAEA",
+                fontFamily: '"Geist Mono", monospace',
+                fontWeight: 600,
+                letterSpacing: "0.5px",
+                textTransform: "uppercase",
+                marginBottom: "8px",
+              }}
+            >
+              DELETE ALL CHATS
+            </div>
+            <div style={{ fontSize: "13px", color: "#888", lineHeight: "1.6" }}>
+              Permanently remove all chat history and conversations. This action cannot be undone.
+            </div>
+          </div>
+          <button
+            onClick={() => setShowConfirmDialog(true)}
+            disabled={isClearing}
+            style={{
+              padding: "8px 16px",
+              backgroundColor: "transparent",
+              color: "#ff0000",
+              border: "1px solid #ff0000",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontSize: "14px",
+              fontWeight: "bold",
+              textTransform: "uppercase",
+              opacity: isClearing ? 0.5 : 1,
+              transition: "all 0.2s ease",
+            }}
+            onMouseEnter={(e) => {
+              if (!isClearing) {
+                e.currentTarget.style.backgroundColor = "#ff0000";
+                e.currentTarget.style.color = "#ffffff";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isClearing) {
+                e.currentTarget.style.backgroundColor = "transparent";
+                e.currentTarget.style.color = "#ff0000";
+              }
+            }}
+          >
+            {isClearing ? "DELETING..." : "DELETE ALL"}
+          </button>
+        </div>
       </div>
+
+      {/* Confirmation Dialog */}
+      {showConfirmDialog && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.8)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setShowConfirmDialog(false)}
+        >
+          <div
+            style={{
+              background: "#000",
+              border: "1px solid #1A1A1A",
+              borderRadius: "4px",
+              padding: "32px",
+              maxWidth: "400px",
+              width: "90%",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                fontSize: "16px",
+                color: "#EAEAEA",
+                fontFamily: '"Geist", sans-serif',
+                fontWeight: 500,
+                marginBottom: "16px",
+              }}
+            >
+              Clear All Chat History?
+            </div>
+            <div
+              style={{
+                fontSize: "13px",
+                color: "#888",
+                lineHeight: "1.6",
+                marginBottom: "24px",
+              }}
+            >
+              This action cannot be undone. All messages from all your chat sessions will be permanently deleted.
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                onClick={() => setShowConfirmDialog(false)}
+                style={{
+                  background: "transparent",
+                  border: "1px solid #333",
+                  color: "#A1A1AA",
+                  padding: "8px 16px",
+                  borderRadius: "2px",
+                  fontSize: "10px",
+                  fontFamily: '"Geist Mono", monospace',
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = "#000";
+                  e.currentTarget.style.background = "#EAEAEA";
+                  e.currentTarget.style.borderColor = "#EAEAEA";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = "#A1A1AA";
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.borderColor = "#333";
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClearHistory}
+                disabled={isClearing}
+                style={{
+                  background: isClearing ? "#dc2626" : "#dc2626",
+                  border: "1px solid #dc2626",
+                  color: "#fff",
+                  padding: "8px 16px",
+                  borderRadius: "2px",
+                  fontSize: "10px",
+                  fontFamily: '"Geist Mono", monospace',
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
+                  cursor: isClearing ? "not-allowed" : "pointer",
+                  transition: "all 0.2s ease",
+                  opacity: isClearing ? 0.7 : 1,
+                }}
+              >
+                {isClearing ? "Clearing..." : "Clear History"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

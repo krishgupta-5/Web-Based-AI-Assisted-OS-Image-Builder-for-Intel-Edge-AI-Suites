@@ -677,89 +677,135 @@ export default function ChatPanel({
 
   // Load chat history on component mount
   useEffect(() => {
-    const loadChatHistory = async () => {
-      if (!isSignedIn) {
-        return;
+  const loadChatHistory = async () => {
+    if (!isSignedIn) return;
+
+    setMessages([]);
+    setGeneratedData(null);
+    setHasGeneratedConfig(false);
+    setIsModifyMode(false);
+
+    try {
+      const currentSessionId = sessionId || getSessionId();
+      const messagesResponse = await fetch(
+        `/api/chat-history?sessionId=${currentSessionId}`
+      );
+      if (!messagesResponse.ok) return;
+
+      const messagesData = await messagesResponse.json();
+      const rawMessages: any[] = messagesData?.messages || [];
+
+      // ── Find the latest complete result blob ──────────────────────────────
+      // We want the LAST assistant message that contains a full result
+      // (yaml + docker + ...) so we can reconstruct the UI state.
+      let latestResult: any = null;
+      for (const msg of rawMessages) {
+        if (msg.role === "assistant") {
+          try {
+            const parsed = JSON.parse(msg.content);
+            if (parsed.yaml && parsed.docker) {
+              latestResult = parsed;
+            }
+          } catch {
+            // plain text assistant message — skip
+          }
+        }
       }
-      setMessages([]);
-      setGeneratedData(null);
-      setHasGeneratedConfig(false);
-      setIsModifyMode(false);
 
-      try {
-        const currentSessionId = sessionId || getSessionId();
+      // ── Build the visible message list ────────────────────────────────────
+      const historyMessages: Message[] = [];
 
-        let messagesResponse;
-        let messagesData;
-        let foundCompleteResult = false;
-        let completeResultData = null;
+      for (const msg of rawMessages) {
+        const ts = new Date(
+          msg.createdAt?.toDate?.() || msg.createdAt
+        ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-        try {
-          messagesResponse = await fetch(
-            `/api/chat-history?sessionId=${currentSessionId}`,
-          );
-          if (!messagesResponse.ok) return;
-
-          messagesData = await messagesResponse.json();
-        } catch (error) {
-          console.error("Failed to fetch chat history:", error);
-          return;
+        if (msg.role === "user") {
+          // Always show user messages as-is
+          historyMessages.push({
+            id: msg.id,
+            role: "user",
+            content: msg.content,
+            timestamp: ts,
+          });
+          continue;
         }
 
-        const historyMessages: Message[] = (messagesData?.messages || []).map(
-          (msg: any) => {
-            let content = msg.content;
+        // ── Assistant message ─────────────────────────────────────────────
+        let parsed: any = null;
+        try {
+          parsed = JSON.parse(msg.content);
+        } catch {
+          // plain text — render verbatim
+        }
 
-            if (msg.role === "assistant") {
-              try {
-                const parsed = JSON.parse(msg.content);
-                if (
-                  parsed.yaml ||
-                  parsed.docker ||
-                  parsed.pipeline ||
-                  parsed.markdown
-                ) {
-                  foundCompleteResult = true;
-                  completeResultData = parsed;
-                  content =
-                    "Configuration generated successfully. You can view the generated files below.";
-                }
-              } catch (e) {
-                content = msg.content;
-              }
-            }
+        if (!parsed || !parsed.yaml) {
+          // Not a result blob — just a normal assistant text message
+          historyMessages.push({
+            id: msg.id,
+            role: "assistant",
+            content: msg.content,
+            timestamp: ts,
+          });
+          continue;
+        }
 
-            return {
-              id: msg.id,
-              role: msg.role,
-              content,
-              timestamp: new Date(
-                msg.createdAt?.toDate?.() || msg.createdAt,
-              ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            };
-          },
+        // This is a result blob. We need to figure out which "step" it was
+        // shown at. Strategy: look at the user message immediately before it
+        // and use detectStep() on that text. If there's no prior user message,
+        // default to "config" (the initial generation).
+        const msgIndex = rawMessages.indexOf(msg);
+        const precedingUser = rawMessages
+          .slice(0, msgIndex)
+          .filter((m: any) => m.role === "user")
+          .pop();
+
+        // Temporarily set hasGeneratedConfig based on whether there was
+        // already a yaml result before this message.
+        const isFirst = historyMessages.every(
+          (m) => !m.file || m.file.language !== "yaml"
         );
 
-        setMessages(historyMessages);
+        const userText: string = precedingUser?.content ?? "";
+        const step = detectStep(userText);
 
-        if (foundCompleteResult && completeResultData) {
-          setGeneratedData(completeResultData);
-          setHasGeneratedConfig(true);
-          return;
-        }
-      } catch (error) {
-        console.error("Failed to load chat history:", error);
+        const { content, file, options } = buildAssistantMessage(
+          step,
+          parsed,
+          isFirst,
+          false
+        );
+
+        historyMessages.push({
+          id: msg.id,
+          role: "assistant",
+          content,
+          timestamp: ts,
+          file,
+          options,
+        });
       }
-    };
 
-    loadChatHistory();
-  }, [sessionId, isSignedIn]);
+      setMessages(historyMessages);
 
-  const detectStep = (text: string): Step => {
+      if (latestResult) {
+        setGeneratedData(latestResult);
+        setHasGeneratedConfig(true);
+      }
+    } catch (error) {
+      console.error("Failed to load chat history:", error);
+    }
+  };
+
+  loadChatHistory();
+}, [sessionId, isSignedIn]);
+
+  const detectStep = (text: string, forceHasConfig = false): Step => {
     const lower = text.toLowerCase();
+    const configIsSet = forceHasConfig || isModifyMode;
     if (isModifyMode) return "config";
 
-    if (hasGeneratedConfig) {
+    if (configIsSet || hasGeneratedConfig) {
       if (lower.includes("docker"))
         return "docker";
       if (lower.includes("pipeline") || lower.includes("show pipeline"))
