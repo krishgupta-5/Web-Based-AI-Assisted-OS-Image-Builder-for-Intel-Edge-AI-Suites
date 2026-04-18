@@ -79,45 +79,92 @@ export default function LaunchingSoonPage() {
 
           {/* CLERK CONDITIONAL RENDERING */}
           {isSignedIn === false && (
-            <Link href="/signup" style={{ textDecoration: "none" }}>
-              <button
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#A1A1AA",
-                  cursor: "pointer",
-                  fontSize: "11px",
-                  fontFamily: '"Geist Mono", monospace',
-                  padding: "4px 8px",
-                  borderRadius: "2px",
-                  transition: "color 0.2s",
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#A1A1AA")}
-              >
-                [ LOGIN ]
-              </button>
-            </Link>
+            <>
+              <Link href="/login" style={{ textDecoration: "none" }}>
+                <button
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #333",
+                    color: "#A1A1AA",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontFamily: '"Geist Mono", monospace',
+                    padding: "6px 14px",
+                    borderRadius: "2px",
+                    transition: "all 0.2s ease",
+                    fontWeight: 600,
+                    letterSpacing: "0.5px",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = "#EAEAEA";
+                    e.currentTarget.style.borderColor = "#666";
+                    e.currentTarget.style.background = "#111";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = "#A1A1AA";
+                    e.currentTarget.style.borderColor = "#333";
+                    e.currentTarget.style.background = "transparent";
+                  }}
+                >
+                  LOG IN
+                </button>
+              </Link>
+              <Link href="/signup" style={{ textDecoration: "none" }}>
+                <button
+                  style={{
+                    background: "#EAEAEA",
+                    border: "1px solid #EAEAEA",
+                    color: "#000",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontFamily: '"Geist Mono", monospace',
+                    padding: "6px 14px",
+                    borderRadius: "2px",
+                    transition: "all 0.2s ease",
+                    fontWeight: 600,
+                    letterSpacing: "0.5px",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "#FFFFFF";
+                    e.currentTarget.style.borderColor = "#FFFFFF";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "#EAEAEA";
+                    e.currentTarget.style.borderColor = "#EAEAEA";
+                  }}
+                >
+                  SIGN UP
+                </button>
+              </Link>
+            </>
           )}
 
           {isSignedIn === true && (
             <Link href="/chat" style={{ textDecoration: "none" }}>
               <button
                 style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "#A1A1AA",
+                  background: "#EAEAEA",
+                  border: "1px solid #EAEAEA",
+                  color: "#000",
                   cursor: "pointer",
                   fontSize: "11px",
                   fontFamily: '"Geist Mono", monospace',
-                  padding: "4px 8px",
+                  padding: "6px 14px",
                   borderRadius: "2px",
-                  transition: "color 0.2s",
+                  transition: "all 0.2s ease",
+                  fontWeight: 600,
+                  letterSpacing: "0.5px",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#A1A1AA")}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#FFFFFF";
+                  e.currentTarget.style.borderColor = "#FFFFFF";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "#EAEAEA";
+                  e.currentTarget.style.borderColor = "#EAEAEA";
+                }}
               >
-                [ DASHBOARD ]
+                DASHBOARD
               </button>
             </Link>
           )}
@@ -388,23 +435,23 @@ export default function LaunchingSoonPage() {
           background: "#000",
         }}
       >
-        <a
-          href="#"
+        <Link
+          href="/terms"
           style={{ color: "inherit", textDecoration: "none", transition: "color 0.2s" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
           onMouseLeave={(e) => (e.currentTarget.style.color = "#444")}
         >
           Terms of Service
-        </a>
+        </Link>
         <span>&bull;</span>
-        <a
-          href="#"
+        <Link
+          href="/privacy"
           style={{ color: "inherit", textDecoration: "none", transition: "color 0.2s" }}
           onMouseEnter={(e) => (e.currentTarget.style.color = "#EAEAEA")}
           onMouseLeave={(e) => (e.currentTarget.style.color = "#444")}
         >
           Privacy Policy
-        </a>
+        </Link>
       </div>
 
       <style

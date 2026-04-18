@@ -1,8 +1,19 @@
-import { clerkMiddleware } from '@clerk/nextjs/server';
+import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import type { NextRequest } from 'next/server';
 import type { NextFetchEvent } from 'next/server';
 
-const clerkProxy = clerkMiddleware();
+// Routes that require authentication — unauthenticated users
+// will be redirected to the Clerk sign-in page.
+const isProtectedRoute = createRouteMatcher([
+  '/chat(.*)',
+  '/settings(.*)',
+]);
+
+const clerkProxy = clerkMiddleware(async (auth, req) => {
+  if (isProtectedRoute(req)) {
+    await auth.protect();
+  }
+});
 
 export function proxy(request: NextRequest, event: NextFetchEvent) {
   return clerkProxy(request, event);
