@@ -972,6 +972,7 @@ export default function ChatPanel({
               handleInputChange={handleInputChange} 
               handleKeyDown={handleKeyDown} 
               handleSend={handleSend} 
+              isTyping={isTyping}
             />
           </div>
         </div>

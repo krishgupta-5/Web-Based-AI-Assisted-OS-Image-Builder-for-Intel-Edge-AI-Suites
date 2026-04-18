@@ -115,14 +115,14 @@ interface SessionData {
 
 // ─────────────────────────────────────────────
 // Structured logger
-// ─────────────────────────────────────────────
+// -------------------------------------------------
 const log = {
-  info: (msg: string, meta?: object) =>
-    console.log(JSON.stringify({ level: "info", msg, ...meta, ts: Date.now() })),
-  warn: (msg: string, meta?: object) =>
-    console.warn(JSON.stringify({ level: "warn", msg, ...meta, ts: Date.now() })),
-  error: (msg: string, meta?: object) =>
-    console.error(JSON.stringify({ level: "error", msg, ...meta, ts: Date.now() })),
+  info: (msg: string, meta?: object, apiKey?: string) =>
+    console.log(JSON.stringify({ level: "info", msg, ...meta, apiKey: apiKey ? `${apiKey.slice(0, 8)}...` : undefined, ts: Date.now() })),
+  warn: (msg: string, meta?: object, apiKey?: string) =>
+    console.warn(JSON.stringify({ level: "warn", msg, ...meta, apiKey: apiKey ? `${apiKey.slice(0, 8)}...` : undefined, ts: Date.now() })),
+  error: (msg: string, meta?: object, apiKey?: string) =>
+    console.error(JSON.stringify({ level: "error", msg, ...meta, apiKey: apiKey ? `${apiKey.slice(0, 8)}...` : undefined, ts: Date.now() })),
 };
 
 // ─────────────────────────────────────────────
@@ -901,13 +901,13 @@ async function callGroq(
         const waitMs = retryAfter
           ? parseFloat(retryAfter) * 1000
           : Math.pow(2, attempt) * 3000;
-        log.warn("Groq rate limited", { label, attempt, waitMs });
+        log.warn("Groq rate limited", { label, attempt, waitMs }, apiKey);
         if (attempt < MAX_RETRIES) { await sleep(waitMs); continue; }
         return null;
       }
 
       if (!res.ok) {
-        log.error("Groq API error", { label, status: res.status, body: await res.text() });
+        log.error("Groq API error", { label, status: res.status, body: await res.text() }, apiKey);
         return null;
       }
 
@@ -916,10 +916,10 @@ async function callGroq(
       const cleaned = extractYamlBlock(stripFences(raw));
       const tokens = data?.usage?.total_tokens ?? 0;
 
-      log.info("Groq call OK", { label, tokens });
+      log.info("Groq call OK", { label, tokens }, apiKey);
 
       if (isTruncated(cleaned) && attempt < MAX_RETRIES) {
-        log.warn("Truncated output detected, retrying", { label, attempt });
+        log.warn("Truncated output detected, retrying", { label, attempt }, apiKey);
         return callGroq(
           apiKey, systemPrompt, userMessage, history,
           Math.ceil(maxTokens * 1.25), label, attempt + 1
@@ -929,7 +929,7 @@ async function callGroq(
       return { content: cleaned, tokens };
 
     } catch (err) {
-      log.error("Groq fetch error", { label, attempt, err: String(err) });
+      log.error("Groq fetch error", { label, attempt, err: String(err) }, apiKey);
       if (attempt < MAX_RETRIES) { await sleep(Math.pow(2, attempt) * 2000); continue; }
       return null;
     }
@@ -970,17 +970,17 @@ async function callGroqRaw(
 
     const res = await withTimeout(fetchPromise, REQUEST_TIMEOUT_MS);
     if (!res.ok) {
-      log.error("Groq raw API error", { label, status: res.status });
+      log.error("Groq raw API error", { label, status: res.status }, apiKey);
       return null;
     }
 
     const data = await res.json();
     const content: string = data?.choices?.[0]?.message?.content ?? "";
     const tokens = data?.usage?.total_tokens ?? 0;
-    log.info("Groq raw call OK", { label, tokens });
+    log.info("Groq raw call OK", { label, tokens }, apiKey);
     return { content, tokens };
   } catch (err) {
-    log.error("Groq raw fetch error", { label, err: String(err) });
+    log.error("Groq raw fetch error", { label, err: String(err) }, apiKey);
     return null;
   }
 }
@@ -1053,6 +1053,8 @@ export async function POST(req: Request) {
       return errorResponse("Server misconfiguration", "MISSING_API_KEY", 500);
     }
     const markdownApiKey = process.env.GROQ_API_KEY_MARKDOWN || apiKey;
+    const apiDesignApiKey = process.env.GROQ_API_KEY_APIDESIGN || apiKey;
+    const folderStructureKey = process.env.GROQ_API_KEY_FOLDERSTRUCTURE || apiKey;
 
     // ── 3. Session ───────────────────────────────────────────────────────────
     const session = getSession(sessionId);
@@ -1139,7 +1141,7 @@ export async function POST(req: Request) {
 
       if (flags.folderStructure) {
         const ctx = `Generate folder structure for this UPDATED stack: ${summarizeYaml(yaml)}`;
-        folderStructureResult = await callGroq(apiKey, FOLDER_STRUCTURE_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.folderStructure, "folderStructure");
+        folderStructureResult = await callGroq(folderStructureKey, FOLDER_STRUCTURE_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.folderStructure, "folderStructure");
         if (folderStructureResult) {
           folderStructure = folderStructureResult.content;
         }
@@ -1147,7 +1149,7 @@ export async function POST(req: Request) {
 
       if (flags.apiDesign) {
         const ctx = `Generate API design for this UPDATED stack: ${summarizeYaml(yaml)}`;
-        apiDesignResult = await callGroq(apiKey, API_DESIGN_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.apiDesign, "apiDesign");
+        apiDesignResult = await callGroq(apiDesignApiKey, API_DESIGN_PROMPT, ctx, trimHistory(session.history), TOKEN_BUDGET.apiDesign, "apiDesign");
         if (apiDesignResult) {
           apiDesign = apiDesignResult.content;
           session.history.push({ role: "assistant", content: compressForHistory(apiDesign, "apidesign") });
@@ -1289,14 +1291,14 @@ export async function POST(req: Request) {
     // Step 5 — Folder Structure
     const folderCtx = `Generate folder structure for this stack: ${stackSummary}`;
     const folderStructureResult = await callGroq(
-      apiKey, FOLDER_STRUCTURE_PROMPT, folderCtx, trimHistory(session.history), TOKEN_BUDGET.folderStructure, "folderStructure"
+      folderStructureKey, FOLDER_STRUCTURE_PROMPT, folderCtx, trimHistory(session.history), TOKEN_BUDGET.folderStructure, "folderStructure"
     );
     const folderStructure = folderStructureResult?.content ?? "";
 
     // Step 6 — API Design
     const apiDesignCtx = `Generate API design for this stack: ${stackSummary}`;
     const apiDesignResult = await callGroq(
-      apiKey, API_DESIGN_PROMPT, apiDesignCtx, trimHistory(session.history), TOKEN_BUDGET.apiDesign, "apiDesign"
+      apiDesignApiKey, API_DESIGN_PROMPT, apiDesignCtx, trimHistory(session.history), TOKEN_BUDGET.apiDesign, "apiDesign"
     );
     const apiDesign = apiDesignResult?.content ?? "";
     if (apiDesignResult) {

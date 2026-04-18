@@ -15,6 +15,7 @@ interface InputAreaProps {
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   handleKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   handleSend: () => void;
+  isTyping: boolean;
 }
 
 export default function InputArea({ 
@@ -23,7 +24,8 @@ export default function InputArea({
   tokenQuota, 
   handleInputChange, 
   handleKeyDown, 
-  handleSend 
+  handleSend,
+  isTyping 
 }: InputAreaProps) {
   return (
     <div
@@ -49,14 +51,15 @@ export default function InputArea({
         value={input}
         onChange={handleInputChange}
         onKeyDown={handleKeyDown}
-        placeholder="Enter command..."
+        placeholder={isTyping ? "Processing..." : "Enter command..."}
+        disabled={isTyping}
         rows={1}
         style={{
           flex: 1,
           background: "transparent",
           border: "none",
           outline: "none",
-          color: "#EAEAEA",
+          color: isTyping ? "#666" : "#EAEAEA",
           fontSize: "14px",
           fontFamily: '"Geist Mono", monospace',
           resize: "none",
@@ -67,6 +70,8 @@ export default function InputArea({
           overflowY: "auto",
           padding: "0",
           margin: "0",
+          cursor: isTyping ? "not-allowed" : "text",
+          opacity: isTyping ? 0.6 : 1,
         }}
       />
       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
@@ -80,12 +85,12 @@ export default function InputArea({
         </button>
         <button
           onClick={handleSend}
-          disabled={tokenQuota?.exhausted}
+          disabled={tokenQuota?.exhausted || isTyping}
           style={{
-            background: (input.trim() && !tokenQuota?.exhausted) ? "#EAEAEA" : "transparent",
-            border: `1px solid ${tokenQuota?.exhausted ? "#ff6b6b40" : input.trim() ? "#EAEAEA" : "#444"}`,
-            color: tokenQuota?.exhausted ? "#ff6b6b" : input.trim() ? "#000000" : "#888",
-            cursor: (input.trim() && !tokenQuota?.exhausted) ? "pointer" : "default",
+            background: (input.trim() && !tokenQuota?.exhausted && !isTyping) ? "#EAEAEA" : "transparent",
+            border: `1px solid ${tokenQuota?.exhausted ? "#ff6b6b40" : isTyping ? "#444" : input.trim() ? "#EAEAEA" : "#444"}`,
+            color: tokenQuota?.exhausted ? "#ff6b6b" : isTyping ? "#666" : input.trim() ? "#000000" : "#888",
+            cursor: (input.trim() && !tokenQuota?.exhausted && !isTyping) ? "pointer" : "default",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -96,11 +101,36 @@ export default function InputArea({
             textTransform: "uppercase",
             transition: "all 0.15s ease",
             borderRadius: "6px",
+            opacity: isTyping ? 0.7 : 1,
           }}
         >
-          {tokenQuota?.exhausted ? "BURNED" : "Exec"}
+          {tokenQuota?.exhausted ? "BURNED" : isTyping ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <div style={{ 
+                width: "8px", 
+                height: "8px", 
+                border: "2px solid #666", 
+                borderTop: "2px solid transparent", 
+                borderRadius: "50%", 
+                animation: "spin 1s linear infinite" 
+              }} />
+              <span>Processing</span>
+            </div>
+          ) : "Exec"}
         </button>
       </div>
     </div>
   );
+}
+
+// Add the spinner animation to the document
+if (typeof window !== 'undefined') {
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
 }
