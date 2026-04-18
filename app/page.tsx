@@ -1,11 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { memo } from "react";
 import Link from "next/link";
 import { Terminal, Box, Cloud } from "lucide-react";
 import { useAuth } from "@clerk/nextjs";
 
-export default function LaunchingSoonPage() {
+const LaunchingSoonPage = memo(() => {
   const { isSignedIn } = useAuth();
 
   return (
@@ -463,4 +463,6 @@ export default function LaunchingSoonPage() {
       />
     </div>
   );
-}
+});
+
+export default LaunchingSoonPage;
