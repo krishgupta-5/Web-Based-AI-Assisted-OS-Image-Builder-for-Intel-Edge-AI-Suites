@@ -798,6 +798,7 @@ export async function POST(req: Request) {
         generatedTitle = titleRes.content.replace(/["']/g, "").trim();
     }
 
+    
     // ══════════════════════════════════════════════════════════════════════════
     // MODIFY MODE — regenerates only the requested artifact
     // ══════════════════════════════════════════════════════════════════════════

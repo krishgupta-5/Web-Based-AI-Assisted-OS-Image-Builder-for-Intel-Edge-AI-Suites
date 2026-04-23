@@ -5,7 +5,6 @@ import type { NextFetchEvent } from 'next/server';
 // Routes that require authentication — unauthenticated users
 // will be redirected to the Clerk sign-in page.
 const isProtectedRoute = createRouteMatcher([
-  '/chat(.*)',
   '/settings(.*)',
 ]);
 

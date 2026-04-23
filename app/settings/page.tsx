@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { useUser, SignOutButton } from "@clerk/nextjs";
+import { useUser, SignOutButton, useClerk } from "@clerk/nextjs";
 
-type Tab = "profile" | "preferences" | "billing";
+type Tab = "profile" | "preferences" | "security" | "billing";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("profile");
@@ -136,6 +136,7 @@ export default function SettingsPage() {
           </div>
           <NavButton active={activeTab === "profile"} onClick={() => setActiveTab("profile")} label="User Profile" />
           <NavButton active={activeTab === "preferences"} onClick={() => setActiveTab("preferences")} label="Preferences" />
+          <NavButton active={activeTab === "security"} onClick={() => setActiveTab("security")} label="Security" />
           <NavButton active={activeTab === "billing"} onClick={() => setActiveTab("billing")} label="Usage & Billing" />
         </aside>
 
@@ -143,6 +144,7 @@ export default function SettingsPage() {
         <main style={{ flex: 1, minWidth: "300px" }}>
           {activeTab === "profile" && <ProfileSection />}
           {activeTab === "preferences" && <PreferencesSection />}
+          {activeTab === "security" && <SecuritySection />}
           {activeTab === "billing" && <BillingSection />}
         </main>
       </div>
@@ -265,6 +267,399 @@ function ProfileSection() {
           <div style={{ gridColumn: "1 / -1" }}>
             <InputField label="Email Address" defaultValue={email} type="email" readOnly />
           </div>
+        </div>
+
+        </div>
+    </div>
+  );
+}
+
+function SecuritySection() {
+  const { user, isLoaded } = useUser();
+  const clerk = useClerk();
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+
+  // Check if user is using OAuth (Google, etc.) vs email/password
+  const isOAuthUser = user?.externalAccounts && user.externalAccounts.length > 0;
+  const hasPassword = user?.passwordEnabled || false;
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    // Validation
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError("All password fields are required");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters long");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordError("New passwords do not match");
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      // Update password using Clerk's API
+      await clerk.user?.updatePassword({
+        currentPassword,
+        newPassword
+      });
+      
+      setPasswordSuccess("Password changed successfully!");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setShowPasswordForm(false);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setPasswordSuccess(""), 3000);
+    } catch (error: any) {
+      console.error("Password change error:", error);
+      if (error?.errors?.[0]?.code === "invalid_password") {
+        setPasswordError("Current password is incorrect");
+      } else if (error?.errors?.[0]?.code === "password_length_too_short") {
+        setPasswordError("Password must be at least 8 characters long");
+      } else if (error?.errors?.[0]?.code === "password_already_used") {
+        setPasswordError("This password has been used before");
+      } else {
+        setPasswordError("Failed to change password. Please try again.");
+      }
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  return (
+    <div style={{ animation: "pipFade 0.2s ease-out forwards" }}>
+      <SectionHeader title="Security" description="Manage your account security settings and authentication preferences." />
+
+      <div style={{ background: "#000000", border: "1px solid #1A1A1A", borderRadius: "4px", padding: "32px", display: "flex", flexDirection: "column", gap: "24px" }}>
+        {/* Authentication Method Info */}
+        <div>
+          <div style={{ fontSize: "12px", color: "#EAEAEA", fontFamily: '"Geist Mono", monospace', fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "16px" }}>
+            AUTHENTICATION METHOD
+          </div>
+          
+          {isOAuthUser ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "24px" }}>
+              <div style={{ fontSize: "13px", color: "#888", lineHeight: "1.6", flex: 1 }}>
+                You are signed in with <strong>{user?.externalAccounts?.[0]?.provider || "Google"}</strong>. Your account is secured through OAuth authentication.
+              </div>
+              {user?.externalAccounts?.[0]?.imageUrl && (
+                <img 
+                  src={user.externalAccounts[0].imageUrl} 
+                  alt={`${user.externalAccounts[0].provider} logo`}
+                  style={{ width: "24px", height: "24px", borderRadius: "4px" }}
+                />
+              )}
+            </div>
+          ) : hasPassword ? (
+            <div style={{ fontSize: "13px", color: "#888", lineHeight: "1.6", marginBottom: "24px" }}>
+              You are signed in with email and password authentication.
+            </div>
+          ) : (
+            <div style={{ fontSize: "13px", color: "#888", lineHeight: "1.6", marginBottom: "24px" }}>
+              Your authentication method is not configured.
+            </div>
+          )}
+        </div>
+
+        <div style={{ height: "1px", width: "100%", background: "#111" }} />
+
+        {/* Password Section */}
+        <div>
+          {/* For OAuth users - show title and description */}
+          {isOAuthUser && (
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ fontSize: "12px", color: "#EAEAEA", fontFamily: '"Geist Mono", monospace', fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "8px" }}>
+                PASSWORD SECURITY
+              </div>
+              <div style={{ fontSize: "13px", color: "#888", lineHeight: "1.6" }}>
+                Password changes are managed through your OAuth provider.
+              </div>
+            </div>
+          )}
+
+          {/* For email/password users - only show change password button */}
+          {!isOAuthUser && hasPassword && (
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setShowPasswordForm(!showPasswordForm)}
+                style={{
+                  padding: "10px 16px",
+                  backgroundColor: "transparent",
+                  color: "#EAEAEA",
+                  border: "1px solid #333",
+                  borderRadius: "2px",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontFamily: '"Geist Mono", monospace',
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "1px",
+                  transition: "all 0.2s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = "#EAEAEA";
+                  e.currentTarget.style.color = "#000000";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.color = "#EAEAEA";
+                }}
+              >
+                {showPasswordForm ? "CANCEL" : "CHANGE PASSWORD"}
+              </button>
+            </div>
+          )}
+
+          {/* For users with no password - show title and description */}
+          {!isOAuthUser && !hasPassword && (
+            <div style={{ marginBottom: "24px" }}>
+              <div style={{ fontSize: "12px", color: "#EAEAEA", fontFamily: '"Geist Mono", monospace', fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: "8px" }}>
+                PASSWORD SECURITY
+              </div>
+              <div style={{ fontSize: "13px", color: "#888", lineHeight: "1.6" }}>
+                Set up a password for additional security.
+              </div>
+            </div>
+          )}
+
+          
+          {/* No Password User Info */}
+          {!isOAuthUser && !hasPassword && (
+            <div style={{
+              padding: "16px",
+              backgroundColor: "#2E0A0A",
+              border: "1px solid #5A2A2A",
+              borderRadius: "2px",
+              fontSize: "12px",
+              color: "#EAEAEA",
+              fontFamily: '"Geist Mono", monospace',
+              lineHeight: "1.6",
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: "8px" }}>No Password Set</div>
+              <div>
+                Your account doesn't have a password configured. You can only sign in using OAuth providers.
+              </div>
+            </div>
+          )}
+
+          {/* Success Message */}
+          {passwordSuccess && (
+            <div style={{
+              padding: "12px 16px",
+              backgroundColor: "#0F4F0F",
+              border: "1px solid #2F8F2F",
+              borderRadius: "2px",
+              marginBottom: "16px",
+              fontSize: "12px",
+              color: "#EAEAEA",
+              fontFamily: '"Geist Mono", monospace',
+            }}>
+              {passwordSuccess}
+            </div>
+          )}
+
+          {/* Error Message */}
+          {passwordError && (
+            <div style={{
+              padding: "12px 16px",
+              backgroundColor: "#4F0F0F",
+              border: "1px solid #8F2F2F",
+              borderRadius: "2px",
+              marginBottom: "16px",
+              fontSize: "12px",
+              color: "#EAEAEA",
+              fontFamily: '"Geist Mono", monospace',
+            }}>
+              {passwordError}
+            </div>
+          )}
+
+          {/* Password Change Form */}
+          {!isOAuthUser && hasPassword && showPasswordForm && (
+            <form onSubmit={handleChangePassword} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "16px" }}>
+                <div>
+                  <label style={{ fontSize: "10px", color: "#888", fontFamily: '"Geist Mono", monospace', textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: "8px" }}>
+                    Current Password
+                  </label>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                    disabled={isChangingPassword}
+                    style={{
+                      width: "100%",
+                      background: "#050505",
+                      border: "1px solid #222",
+                      color: "#EAEAEA",
+                      padding: "14px 16px",
+                      borderRadius: "2px",
+                      fontSize: "13px",
+                      fontFamily: '"Geist Mono", monospace',
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                      cursor: isChangingPassword ? "not-allowed" : "text",
+                    }}
+                    onFocus={(e) => !isChangingPassword && (e.currentTarget.style.borderColor = "#555")}
+                    onBlur={(e) => !isChangingPassword && (e.currentTarget.style.borderColor = "#222")}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: "10px", color: "#888", fontFamily: '"Geist Mono", monospace', textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: "8px" }}>
+                    New Password
+                  </label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    disabled={isChangingPassword}
+                    minLength={8}
+                    style={{
+                      width: "100%",
+                      background: "#050505",
+                      border: "1px solid #222",
+                      color: "#EAEAEA",
+                      padding: "14px 16px",
+                      borderRadius: "2px",
+                      fontSize: "13px",
+                      fontFamily: '"Geist Mono", monospace',
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                      cursor: isChangingPassword ? "not-allowed" : "text",
+                    }}
+                    onFocus={(e) => !isChangingPassword && (e.currentTarget.style.borderColor = "#555")}
+                    onBlur={(e) => !isChangingPassword && (e.currentTarget.style.borderColor = "#222")}
+                  />
+                </div>
+
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ fontSize: "10px", color: "#888", fontFamily: '"Geist Mono", monospace', textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600, display: "block", marginBottom: "8px" }}>
+                    Confirm New Password
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    disabled={isChangingPassword}
+                    minLength={8}
+                    style={{
+                      width: "100%",
+                      background: "#050505",
+                      border: "1px solid #222",
+                      color: "#EAEAEA",
+                      padding: "14px 16px",
+                      borderRadius: "2px",
+                      fontSize: "13px",
+                      fontFamily: '"Geist Mono", monospace',
+                      outline: "none",
+                      transition: "border-color 0.2s",
+                      cursor: isChangingPassword ? "not-allowed" : "text",
+                    }}
+                    onFocus={(e) => !isChangingPassword && (e.currentTarget.style.borderColor = "#555")}
+                    onBlur={(e) => !isChangingPassword && (e.currentTarget.style.borderColor = "#222")}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "12px", justifyContent: "flex-end", marginTop: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordForm(false);
+                    setCurrentPassword("");
+                    setNewPassword("");
+                    setConfirmPassword("");
+                    setPasswordError("");
+                  }}
+                  disabled={isChangingPassword}
+                  style={{
+                    padding: "12px 24px",
+                    backgroundColor: "transparent",
+                    color: "#A1A1AA",
+                    border: "1px solid #333",
+                    borderRadius: "2px",
+                    cursor: isChangingPassword ? "not-allowed" : "pointer",
+                    fontSize: "11px",
+                    fontFamily: '"Geist Mono", monospace',
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                    transition: "all 0.2s ease",
+                    opacity: isChangingPassword ? 0.5 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isChangingPassword) {
+                      e.currentTarget.style.color = "#EAEAEA";
+                      e.currentTarget.style.borderColor = "#666";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isChangingPassword) {
+                      e.currentTarget.style.color = "#A1A1AA";
+                      e.currentTarget.style.borderColor = "#333";
+                    }
+                  }}
+                >
+                  CANCEL
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={isChangingPassword}
+                  style={{
+                    padding: "12px 24px",
+                    backgroundColor: "transparent",
+                    color: "#EAEAEA",
+                    border: "1px solid #EAEAEA",
+                    borderRadius: "2px",
+                    cursor: isChangingPassword ? "not-allowed" : "pointer",
+                    fontSize: "11px",
+                    fontFamily: '"Geist Mono", monospace',
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                    transition: "all 0.2s ease",
+                    opacity: isChangingPassword ? 0.5 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isChangingPassword) {
+                      e.currentTarget.style.backgroundColor = "#EAEAEA";
+                      e.currentTarget.style.color = "#000";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isChangingPassword) {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                      e.currentTarget.style.color = "#EAEAEA";
+                    }
+                  }}
+                >
+                  {isChangingPassword ? "UPDATING..." : "UPDATE PASSWORD"}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>
