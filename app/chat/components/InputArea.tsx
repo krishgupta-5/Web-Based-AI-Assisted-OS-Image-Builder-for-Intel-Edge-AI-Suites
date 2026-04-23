@@ -76,6 +76,10 @@ export default function InputArea({
       />
       <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
         <button
+          onClick={() => {
+            // File attachment functionality to be implemented
+            console.log('File attachment clicked');
+          }}
           style={{ background: "transparent", border: "none", color: "#A0A0A0", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 8px", borderRadius: "6px", transition: "all 0.15s ease", fontSize: "16px", fontFamily: '"Geist Mono", monospace', fontWeight: 500 }}
           onMouseEnter={(e) => { e.currentTarget.style.color = "#EAEAEA"; (e.currentTarget as HTMLButtonElement).style.background = "#222"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = "#A0A0A0"; (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
@@ -123,14 +127,3 @@ export default function InputArea({
   );
 }
 
-// Add the spinner animation to the document
-if (typeof window !== 'undefined') {
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  `;
-  document.head.appendChild(style);
-}

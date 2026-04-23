@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
 
 export async function getUserFromRequest() {
@@ -33,20 +33,28 @@ export async function getFullUserData() {
       return null;
     }
 
-    // Get additional user data from session claims
+    // Fetch real user data from Clerk API
+    let user = null;
+    try {
+      const client = await clerkClient();
+      user = await client.users.getUser(userId);
+    } catch (userError) {
+      console.warn('Failed to fetch user from Clerk API, falling back to session claims:', userError);
+    }
+
     return {
       userId,
-      email: sessionClaims?.email || null,
-      firstName: sessionClaims?.firstName || null,
-      lastName: sessionClaims?.lastName || null,
-      fullName: sessionClaims?.fullName || sessionClaims?.name || null,
-      username: sessionClaims?.username || null,
-      imageUrl: sessionClaims?.picture || sessionClaims?.image || null,
+      email: user?.emailAddresses?.[0]?.emailAddress || sessionClaims?.email || null,
+      firstName: user?.firstName || sessionClaims?.firstName || null,
+      lastName: user?.lastName || sessionClaims?.lastName || null,
+      fullName: user?.fullName || sessionClaims?.fullName || sessionClaims?.name || null,
+      username: user?.username || sessionClaims?.username || null,
+      imageUrl: user?.imageUrl || sessionClaims?.picture || sessionClaims?.image || null,
       sessionId: sessionClaims?.sid || null,
       // Session and auth context data
       sessionClaims: sessionClaims || {},
       // Additional claims that might be available
-      emailVerified: sessionClaims?.email_verified || false,
+      emailVerified: user?.emailAddresses?.[0]?.verification?.status === 'verified' || sessionClaims?.email_verified || false,
       iss: sessionClaims?.iss || null,
       aud: sessionClaims?.aud || null,
       exp: sessionClaims?.exp || null,

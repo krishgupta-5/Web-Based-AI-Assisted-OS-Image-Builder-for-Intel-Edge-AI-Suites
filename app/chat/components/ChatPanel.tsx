@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { getSessionId, resetSessionId } from "@/app/api/generate/Sessionid";
+import { getSessionId, resetSessionId } from "@/lib/sessionId";
 import DbSchemaViewer from "@/app/chat/components/DbSchemaViewer";
 import PipelineViewer from "@/app/chat/components/PipelineViewer";
 import CopyButton from "@/app/chat/components/CopyButton";
@@ -507,7 +507,8 @@ export default function ChatPanel({
     let isModify = false;
 
     if (forceArtifact) {
-      artifact = forceArtifact;
+      // If no config exists yet, forceArtifact should use "initial" to avoid API error
+      artifact = !hasGeneratedConfig ? "initial" : forceArtifact;
       isModify = false;
     } else if (modifyMode && modifyTargetArtifact) {
       artifact = modifyTargetArtifact;
@@ -521,8 +522,10 @@ export default function ChatPanel({
     }
 
     const currentSessionId = sessionId || resetSessionId();
-    if (!sessionId)
+    if (!sessionId) {
       window.history.replaceState(null, "", `/chat/${currentSessionId}`);
+      sessionStorage.setItem('edge-os-session-id', currentSessionId);
+    }
 
     setMessages((prev) => [
       ...prev,
@@ -678,9 +681,9 @@ export default function ChatPanel({
           }),
         },
       ]);
+    } finally {
+      setIsTyping(false);
     }
-
-    setIsTyping(false);
   };
 
   const handleOptionClick = (label: string) => {
@@ -1528,6 +1531,7 @@ export default function ChatPanel({
         @keyframes pipPulse { 0%,100%{opacity:0.8;transform:scale(1)} 50%{opacity:1;transform:scale(1.1)} }
         @keyframes pipGlow { 0%,100%{opacity:0.3} 50%{opacity:0.8} }
         @keyframes pipFade { from{opacity:0;transform:translateY(3px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         textarea::placeholder{color:#666}
         ::-webkit-scrollbar{width:4px;height:4px}
         ::-webkit-scrollbar-track{background:transparent}

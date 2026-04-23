@@ -45,7 +45,7 @@ export async function GET(req: Request) {
     });
 
     // Sort by createdAt ascending (oldest first)
-    messages.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     return NextResponse.json({ messages });
 

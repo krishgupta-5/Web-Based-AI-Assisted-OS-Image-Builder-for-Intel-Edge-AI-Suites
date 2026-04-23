@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { CSSProperties } from "react";
 import { useUser, SignOutButton } from "@clerk/nextjs";
-import { resetSessionId } from "@/app/api/generate/Sessionid";
+import { useRouter } from "next/navigation";
+import { resetSessionId } from "@/lib/sessionId";
 
 interface SidebarProps {
   activeAgentId?: string;
@@ -153,6 +154,7 @@ export default function Sidebar({
   showLoginModal,
   onShowLoginModal,
 }: SidebarProps) {
+  const router = useRouter();
   const { user, isSignedIn } = useUser();
   const [userSessions, setUserSessions] = useState<Array<{
     sessionId: string;
@@ -235,8 +237,6 @@ export default function Sidebar({
     };
   }, []);
 
-  useEffect(() => {
-  }, [userSessions]);
 
   const fetchUserSessions = async () => {
     setLoading(true);
@@ -320,7 +320,7 @@ export default function Sidebar({
     if (!isSignedIn) { onShowLoginModal?.(true); return; }
     try {
       const newSessionId = resetSessionId();
-      window.location.href = `/chat/${newSessionId}`;
+      router.push(`/chat/${newSessionId}`);
     } catch (error) {
       console.error("Error creating new chat:", error);
     }
@@ -386,6 +386,7 @@ export default function Sidebar({
                   sessionId={session.sessionId}
                   title={session.lastMessage || `Chat ${session.messageCount} messages`}
                   timestamp={session.updatedAt}
+                  onNavigate={(id) => router.push(`/chat/${id}`)}
                   onContextMenu={(e, sessionId, sessionTitle) => {
                     e.preventDefault();
                     const { x, y } = clampPos(e.clientX, e.clientY);
@@ -508,18 +509,19 @@ const popupMenuBtn: CSSProperties = {
   transition: "all 0.2s ease", padding: "12px 16px",
 };
 
-function HistoryItem({ sessionId, title, timestamp, active = false, onContextMenu }: {
+function HistoryItem({ sessionId, title, timestamp, active = false, onNavigate, onContextMenu }: {
   sessionId: string; title: string; timestamp: Date | string; active?: boolean;
+  onNavigate?: (sessionId: string) => void;
   onContextMenu?: (e: React.MouseEvent, sessionId: string, sessionTitle: string) => void;
 }) {
   const formatDate = (date: Date | string) => {
     const now = new Date();
     const dateObj = typeof date === "string" ? new Date(date) : date;
     const diffTime = Math.abs(now.getTime() - dateObj.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    if (diffDays === 1) return "Today";
-    if (diffDays === 2) return "Yesterday";
-    if (diffDays <= 7) return `${diffDays - 1} days ago`;
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
     return dateObj.toLocaleDateString();
   };
 
@@ -527,7 +529,7 @@ function HistoryItem({ sessionId, title, timestamp, active = false, onContextMen
     <button style={{ width: "100%", padding: "12px", marginBottom: "4px", background: active ? "#0A0A0A" : "transparent", border: "1px solid", borderColor: active ? "#222" : "transparent", borderRadius: "2px", color: active ? "#EAEAEA" : "#888", fontSize: "13px", fontFamily: '"Geist",sans-serif', textAlign: "left", cursor: "pointer", wordWrap: "break-word", whiteSpace: "normal", transition: "all 0.2s ease", display: "flex", alignItems: "flex-start", gap: "10px" }}
       onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = "#050505"; e.currentTarget.style.color = "#EAEAEA"; e.currentTarget.style.borderColor = "#1A1A1A"; } }}
       onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#888"; e.currentTarget.style.borderColor = "transparent"; } }}
-      onClick={() => { window.location.href = `/chat/${sessionId}`; }}
+      onClick={() => { onNavigate?.(sessionId); }}
       onContextMenu={(e) => { onContextMenu?.(e, sessionId, title); }}>
       <div style={{ color: "#444", fontFamily: '"Geist Mono",monospace', fontSize: "12px", marginTop: "2px" }}>&gt;</div>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>

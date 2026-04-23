@@ -199,7 +199,7 @@ export default function SignUpPage() {
             </div>
           )}
           
-          <SignUp routing="hash" signInUrl="/login" />
+          <SignUp routing="path" path="/signup" signInUrl="/login" />
         </div>
       </div>
 

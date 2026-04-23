@@ -743,7 +743,9 @@ export async function POST(req: Request) {
     };
     try {
       body = await req.json();
-    } catch {
+      log.info("Request body parsed", { bodyKeys: Object.keys(body) });
+    } catch (error) {
+      log.error("JSON parsing failed", { error: error instanceof Error ? error.message : String(error) });
       return errorResponse("Invalid JSON body", "BAD_REQUEST", 400);
     }
 
@@ -754,15 +756,31 @@ export async function POST(req: Request) {
       typeof body.artifact === "string" ? body.artifact : "initial"
     ) as ArtifactType;
 
+    // Log request details for debugging
+    log.info("Request details", {
+      userId,
+      rawPrompt: rawPrompt.substring(0, 100),
+      rawPromptLength: rawPrompt.length,
+      mode,
+      rawSid,
+      artifact,
+    });
+
     const sessionId = rawSid.trim() || `anon-${Date.now()}`;
     const prompt = sanitisePrompt(rawPrompt);
 
-    if (!prompt || prompt.length < PROMPT_MIN_LEN)
-      return errorResponse(
-        prompt ? "Prompt too short (min 5 chars)" : "Prompt is required",
-        prompt ? "PROMPT_TOO_SHORT" : "MISSING_PROMPT",
-        400,
-      );
+    log.info("After sanitization", {
+      promptLength: prompt.length,
+      prompt: prompt.substring(0, 100),
+      PROMPT_MIN_LEN,
+    });
+
+    if (!prompt || prompt.length < PROMPT_MIN_LEN) {
+      const errorMsg = prompt ? "Prompt too short (min 5 chars)" : "Prompt is required";
+      const errorCode = prompt ? "PROMPT_TOO_SHORT" : "MISSING_PROMPT";
+      log.error("Validation failed", { errorMsg, promptLength: prompt.length });
+      return errorResponse(errorMsg, errorCode, 400);
+    }
 
     // ── API key ──────────────────────────────────────────────────────────────
     const fallback = process.env.GROQ_API_KEY;
@@ -771,6 +789,21 @@ export async function POST(req: Request) {
 
     // ── Session ──────────────────────────────────────────────────────────────
     const session = getSession(sessionId);
+    
+    // Rehydrate lastResult from Firestore if empty (cold start recovery)
+    if (!session.lastResult) {
+      const snap = await db
+        .collection("sessions")
+        .doc(sessionId)
+        .collection("artifacts")
+        .where("type", "==", "config")
+        .get();
+      if (!snap.empty) {
+        const yaml = snap.docs[snap.docs.length - 1].data().content;
+        session.lastResult = { yaml, markdown: "", docker: "", pipeline: "" };
+      }
+    }
+    
     const history = trimHistory(session.history);
     const isFirstMessage = session.history.length === 0;
 
